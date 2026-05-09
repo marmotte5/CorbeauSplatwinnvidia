@@ -234,6 +234,8 @@ class DependencyManager:
             print("\nℹ️  Note: Automatically installed missing engines.")
 
 class Extractor360EngineDep(PipEngine):
+    ask_before_update = True
+
     def __init__(self):
         super().__init__("extractor_360", EXTRACTOR_360_REPO, ".venv_360")
         self.script_path = self.target_dir / "src" / "main.py"
@@ -487,7 +489,7 @@ class BrushEngineDep(EngineDependency):
         return True
 
 class SharpEngineDep(PipEngine):
-    auto_update_default = True
+    ask_before_update = True
 
     def __init__(self):
         super().__init__("sharp", SHARP_REPO, ".venv_sharp")
@@ -533,7 +535,7 @@ def relax_requirements(src, dst):
 
 class ColmapBrewDep(EngineDependency):
     """COLMAP géré via Homebrew — vérifie la version et met à jour si nécessaire"""
-    auto_update_default = True
+    ask_before_update = True
 
     def __init__(self):
         super().__init__("colmap")
@@ -747,6 +749,8 @@ def install_rust_toolchain():
     return False
 
 class SuperSplatEngineDep(EngineDependency):
+    ask_before_update = True
+
     def __init__(self):
         super().__init__("supersplat", SUPERPLAT_REPO)
 
