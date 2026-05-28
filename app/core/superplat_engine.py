@@ -109,12 +109,14 @@ class SuperSplatEngine(BaseEngine):
             def log_message(self, format, *args):  # Suppress noisy default logging
                 return
 
+        class _ReuseAddrTCPServer(socketserver.TCPServer):
+            allow_reuse_address = True
+
         def run_server():  # pragma: no cover – runs in a background thread
             from functools import partial
             handler = partial(CORSRequestHandler, directory=str(dir_path))
             try:
-                socketserver.TCPServer.allow_reuse_address = True
-                self.httpd = socketserver.TCPServer(("127.0.0.1", port), handler)
+                self.httpd = _ReuseAddrTCPServer(("127.0.0.1", port), handler)
                 self.httpd.serve_forever()
             except Exception as e:
                 self.log(f"Erreur Data Server: {e}", level=logging.ERROR)
