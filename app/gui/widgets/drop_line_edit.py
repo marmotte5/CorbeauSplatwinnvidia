@@ -1,5 +1,7 @@
 from PyQt6.QtWidgets import QLineEdit
 from PyQt6.QtCore import pyqtSignal
+from pathlib import Path
+
 
 class DropLineEdit(QLineEdit):
     """
@@ -24,6 +26,13 @@ class DropLineEdit(QLineEdit):
         else:
             super().dragMoveEvent(event)
 
+    def _validate_path(self, path: str) -> bool:
+        try:
+            p = Path(path).resolve()
+            return p.exists()
+        except (TypeError, ValueError, OSError):
+            return False
+
     def dropEvent(self, event):
         if event.mimeData().hasUrls():
             urls = event.mimeData().urls()
@@ -31,11 +40,10 @@ class DropLineEdit(QLineEdit):
                 paths = []
                 for url in urls:
                     path = url.toLocalFile()
-                    if path:
+                    if path and self._validate_path(path):
                         paths.append(path)
-                
+
                 if paths:
-                    # Join multiple paths with a pipe separator
                     joined_paths = "|".join(paths)
                     self.setText(joined_paths)
                     self.fileDropped.emit(joined_paths)

@@ -402,7 +402,6 @@ class ColmapEngine(BaseEngine):
 
         self.log(f"Analyse de {len(files)} images...")
 
-        cache = {}
         sizes = {}
         for f in files:
             if self.is_cancelled():
@@ -412,7 +411,6 @@ class ColmapEngine(BaseEngine):
                 self.log(f"⚠️ Lecture impossible: {f.name}")
                 continue
             h, w = img.shape[:2]
-            cache[f] = img
             sizes[f] = (w, h)
 
         if not sizes:
@@ -426,25 +424,26 @@ class ColmapEngine(BaseEngine):
 
         min_w = min(s[0] for s in unique_sizes)
         min_h = min(s[1] for s in unique_sizes)
-        images_to_resize = [(f, s) for f, s in sizes.items() if s != (min_w, min_h)]
+        to_resize = [f for f, s in sizes.items() if s != (min_w, min_h)]
 
         self.log(f"⚠️ {len(unique_sizes)} résolutions différentes détectées.")
-        self.log(f"Redimensionnement de {len(images_to_resize)} images → {min_w}×{min_h} px")
+        self.log(f"Redimensionnement de {len(to_resize)} images → {min_w}×{min_h} px")
 
-        for i, (f, _) in enumerate(images_to_resize):
+        for i, f in enumerate(to_resize):
             if self.is_cancelled():
                 return False
-            img = cache.get(f)
+            img = cv2.imread(str(f), cv2.IMREAD_UNCHANGED)
             if img is None:
-                self.log(f"⚠️ Lecture impossible: {f.name}")
+                self.log(f"⚠️ Re-lecture impossible: {f.name}")
                 continue
             resized = cv2.resize(img, (min_w, min_h), interpolation=cv2.INTER_AREA)
             cv2.imwrite(str(f), resized)
-            if (i + 1) % 10 == 0 or (i + 1) == len(images_to_resize):
-                self.log(f"Redimensionnement: {i+1}/{len(images_to_resize)}")
-                self.status(f"Ajustement taille : {i+1} / {len(images_to_resize)}")
+            del img, resized
+            if (i + 1) % 10 == 0 or (i + 1) == len(to_resize):
+                self.log(f"Redimensionnement: {i+1}/{len(to_resize)}")
+                self.status(f"Ajustement taille : {i+1} / {len(to_resize)}")
 
-        self.log(f"✅ {len(images_to_resize)} images redimensionnées vers {min_w}×{min_h} px")
+        self.log(f"✅ {len(to_resize)} images redimensionnées vers {min_w}×{min_h} px")
         return True
 
     def extract_frames_from_video(self, video_path: str, images_dir: Path, prefix: Optional[str] = None) -> Optional[bool]:
@@ -473,8 +472,8 @@ class ColmapEngine(BaseEngine):
                     try:
                         f_num = line_str.split('frame=')[1].strip().split()[0]
                         self.status(f"Extraction {base_name} : image {f_num}")
-                    except:
-                        pass
+                    except (IndexError, ValueError) as e:
+                        self.logger.debug("Failed to parse frame number: %s", e)
                         
         try:
             returncode = self._execute_command(cmd, line_callback=_ffmpeg_parser)
@@ -580,6 +579,16 @@ class ColmapEngine(BaseEngine):
 
     def _sort_colmap_database_images(self, database_path: Path) -> None:
         """Make image IDs follow filename order for COLMAP's sequential matcher."""
+        ALLOWED_COLUMNS = {
+            ("images", "image_id"),
+            ("keypoints", "image_id"),
+            ("descriptors", "image_id"),
+            ("frames", "frame_id"),
+            ("frame_data", "frame_id"),
+            ("frame_data", "data_id"),
+            ("pose_priors", "corr_data_id"),
+        }
+
         try:
             with sqlite3.connect(str(database_path)) as con:
                 rows = con.execute(
@@ -618,6 +627,8 @@ class ColmapEngine(BaseEngine):
                     ("frame_data", "data_id"),
                     ("pose_priors", "corr_data_id"),
                 ]:
+                    if (table, column) not in ALLOWED_COLUMNS:
+                        continue
                     if column not in table_columns.get(table, set()):
                         continue
                     con.execute(
@@ -752,10 +763,33 @@ class ColmapEngine(BaseEngine):
 
     @staticmethod
     def delete_project_content(target_path: Path) -> Tuple[bool, str]:
-        """Supprime le contenu d'un dossier de projet de manière sécurisée."""
+        """Supprime le contenu d'un dossier de projet de manière sécurisée.
+        
+        Only allows deletion if target_path is contained within project_root
+        or user home directory.
+        """
+        from .system import resolve_project_root
+        
         safe_path = Path(target_path).resolve()
-        if str(safe_path) == "/" or str(safe_path) == str(Path.home()):
-             return False, "Tentative de suppression critique bloquée par sécurité."
+        project_root = resolve_project_root().resolve()
+        
+        # Validate containment: target must be inside project_root or home
+        allowed = False
+        for base in (project_root, Path.home().resolve()):
+            try:
+                safe_path.relative_to(base)
+                allowed = True
+                break
+            except ValueError:
+                continue
+        
+        if not allowed:
+            logger = logging.getLogger(__name__)
+            logger.warning("delete_project_content blocked: path outside allowed boundaries — %s", safe_path)
+            return False, "Suppression bloquée : le chemin n'est pas dans les limites autorisées."
+        
+        if safe_path == project_root or safe_path == Path.home().resolve():
+            return False, "Tentative de suppression critique bloquée par sécurité."
 
         if not target_path.exists():
             return False, "Le dossier n'existe pas"

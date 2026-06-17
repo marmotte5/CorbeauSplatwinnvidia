@@ -690,8 +690,8 @@ class ExportEngine(BaseEngine):
                     capture_output=True, check=True
                 )
                 return True
-            except Exception:
-                pass
+            except Exception as e:
+                self.log(f"Assimp export failed: {e}")
 
         blender = shutil.which("blender")
         if blender:

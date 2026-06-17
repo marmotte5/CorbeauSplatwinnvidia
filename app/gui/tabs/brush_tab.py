@@ -385,7 +385,6 @@ class BrushTab(QWidget):
         """Retourne les parametres"""
         # Note: iterations replaced by total_steps
         return {
-            "iterations": self.spin_total_steps.value(), # Keeping key compatible for engine
             "total_steps": self.spin_total_steps.value(),
             "start_iter": self.spin_start_iter.value(),
             "refine_every": self.spin_refine.value(),
@@ -542,23 +541,29 @@ class BrushTab(QWidget):
 
     def run_standalone(self):
         from app.core.system import resolve_binary
+        from app.core.brush_engine import BrushEngine
         
         bin_path = resolve_binary("brush")
         if not bin_path:
             QMessageBox.critical(self, tr("msg_error"), tr("err_brush_missing", "Exécutable brush introuvable."))
             return
-            
-        env = os.environ.copy()
-        device = self.device_combo.currentText()
-        if device == "mps":
-            env["WGPU_BACKEND"] = "metal"
-            env["WGPU_POWER_PREF"] = "high_performance"
-        elif device == "cuda":
-            env["WGPU_BACKEND"] = "vulkan"
-            env["WGPU_POWER_PREF"] = "high_performance"
+        
+        input_path = self.input_path.text().strip()
+        output_path = self.output_path.text().strip()
+        
+        if not input_path:
+            QMessageBox.warning(self, tr("msg_warning"), tr("err_brush_no_input", "Veuillez spécifier un dossier de dataset."))
+            return
+        if not output_path:
+            QMessageBox.warning(self, tr("msg_warning"), tr("err_brush_no_output", "Veuillez spécifier un dossier de sortie."))
+            return
             
         try:
-            # Lancement détaché
-            subprocess.Popen([str(bin_path)], env=env)
+            # Use BrushEngine.build_command() to respect build_mode, sh_degree, refine_every, etc.
+            engine = BrushEngine()
+            params = self.get_params()
+            cmd, env = engine.build_command(input_path, output_path, params)
+            # Lancement détaché (pas de blocage de l'UI)
+            subprocess.Popen(cmd, env=env)
         except Exception as e:
             QMessageBox.critical(self, tr("msg_error"), f"{tr('err_launch', 'Erreur de lancement')}: {e}")

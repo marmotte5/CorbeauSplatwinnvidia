@@ -80,7 +80,7 @@ class LanguageManager:
             try:
                 cb()
             except Exception:
-                pass
+                logger.exception("Error notifying language observer: %s", cb)
 
     def tr(self, key, *args):
         text = self._translations.get(key, key)

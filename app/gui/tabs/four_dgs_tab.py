@@ -1,15 +1,34 @@
 
 from pathlib import Path
 import sys
+import subprocess
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QGroupBox,
     QFormLayout, QCheckBox, QSpinBox, QMessageBox, QTextEdit, QApplication, QProgressDialog
 )
 from PyQt6.QtCore import Qt
 from app.core.i18n import tr, add_language_observer
+from app.core.system import resolve_project_root
 from app.gui.widgets.drop_line_edit import DropLineEdit
 from app.gui.widgets.dialog_utils import get_existing_directory
 from app.gui.workers import FourDGSWorker
+
+
+def _get_venv_4dgs_ns_path():
+    """Returns path to ns-process-data in the dedicated 4DGS venv."""
+    root = resolve_project_root()
+    if sys.platform == "win32":
+        return root / ".venv_4dgs" / "Scripts" / "ns-process-data.exe"
+    return root / ".venv_4dgs" / "bin" / "ns-process-data"
+
+
+def _get_venv_4dgs_python():
+    """Returns path to python in the dedicated 4DGS venv."""
+    root = resolve_project_root()
+    if sys.platform == "win32":
+        return root / ".venv_4dgs" / "Scripts" / "python.exe"
+    return root / ".venv_4dgs" / "bin" / "python"
+
 
 class FourDGSTab(QWidget):
     """
@@ -108,19 +127,18 @@ class FourDGSTab(QWidget):
         self.controls_group.setEnabled(False)
         self.btn_run.setEnabled(False)
         
-        # Check if already active/installed (Check persistence or file existence)
-        # We check simply if 'ns-process-data' is in path, implying activation
-        import shutil
-        if shutil.which("ns-process-data"):
+        # Check if already active/installed (Check ns-process-data in dedicated venv)
+        ns_path = _get_venv_4dgs_ns_path()
+        if ns_path.exists():
             self.chk_activate.setChecked(True)
             self.controls_group.setEnabled(True)
             self.btn_run.setEnabled(True)
 
     def on_toggle_activation(self):
         if self.chk_activate.isChecked():
-            # Check dependency
-            import shutil
-            if not shutil.which("ns-process-data"):
+            # Check ns-process-data in the dedicated venv
+            ns_path = _get_venv_4dgs_ns_path()
+            if not ns_path.exists():
                 reply = QMessageBox.question(
                     self, 
                     "Installation Requise", 
@@ -140,16 +158,23 @@ class FourDGSTab(QWidget):
             self.btn_run.setEnabled(False)
 
     def install_dependencies(self):
-        # Install nerfstudio pip package
-        progress = QProgressDialog("Installation de Nerfstudio...", "Annuler", 0, 0, self)
+        """Install nerfstudio in a dedicated venv (.venv_4dgs)."""
+        venv_python = _get_venv_4dgs_python()
+        
+        progress = QProgressDialog("Installation de Nerfstudio (venv dédié)...", "Annuler", 0, 0, self)
         progress.setWindowModality(Qt.WindowModality.WindowModal)
         progress.show()
         QApplication.processEvents()
         
         try:
-            # We use subprocess to call pip
-            # Make sure we use the current python executable
-            cmd = [sys.executable, "-m", "pip", "install", "nerfstudio"]
+            # Create venv if it doesn't exist
+            if not venv_python.exists():
+                self._log_to_view("Création du venv .venv_4dgs...")
+                subprocess.check_call([sys.executable, "-m", "venv", str(venv_python.parent.parent)])
+            
+            # Install nerfstudio inside the dedicated venv
+            cmd = [str(venv_python), "-m", "pip", "install", "nerfstudio"]
+            self._log_to_view(f"Exécution: {' '.join(cmd)}")
             subprocess.check_call(cmd)
             
             QMessageBox.information(self, tr("msg_success"), tr("four_dgs_install_ok", "Installation terminée. Veuillez redémarrer l'application."))
@@ -160,6 +185,13 @@ class FourDGSTab(QWidget):
             self.chk_activate.setChecked(False)
         finally:
             progress.close()
+    
+    def _log_to_view(self, text):
+        """Helper to append log line to the text view."""
+        self.log_view.append(text)
+        sb = self.log_view.verticalScrollBar()
+        sb.setValue(sb.maximum())
+        QApplication.processEvents()
 
     def browse_input(self):
         d = get_existing_directory(self, "Choisir dossier Vidéos")

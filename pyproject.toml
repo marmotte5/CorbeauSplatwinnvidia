@@ -1,0 +1,21 @@
+[project]
+name = "corbeausplat"
+version = "1.0.0"
+description = "Gaussian Splatting toolkit with GUI"
+requires-python = ">=3.10"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+select = ["E", "F", "I", "N", "W", "UP", "B", "SIM", "ARG"]
+
+[tool.mypy]
+strict = true
+
+[[tool.mypy.overrides]]
+module = ["PyQt6.*", "cv2.*", "numpy.*", "plyfile.*", "trimesh.*", "open3d.*", "PIL.*", "send2trash.*", "objc.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]

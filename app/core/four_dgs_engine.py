@@ -1,13 +1,33 @@
 import os
 import subprocess
 import shutil
+import sys
 from pathlib import Path
 from .base_engine import BaseEngine
-from .system import resolve_binary, is_apple_silicon, get_optimal_threads
+from .system import resolve_binary, is_apple_silicon, get_optimal_threads, resolve_project_root
+
+# Path to the dedicated nerfstudio venv
+_VENV_4DGS = resolve_project_root() / ".venv_4dgs"
+
+
+def get_venv_4dgs_python():
+    """Returns path to python executable in .venv_4dgs"""
+    if sys.platform == "win32":
+        return _VENV_4DGS / "Scripts" / "python.exe"
+    return _VENV_4DGS / "bin" / "python"
+
+
+def _get_ns_process_data_path():
+    """Returns path to ns-process-data in the 4DGS venv"""
+    if sys.platform == "win32":
+        return _VENV_4DGS / "Scripts" / "ns-process-data.exe"
+    return _VENV_4DGS / "bin" / "ns-process-data"
+
 
 class FourDGSEngine(BaseEngine):
     """
     Moteur pour la préparation de datasets 4DGS (Video -> COLMAP -> Nerfstudio).
+    Nerfstudio est isolé dans un venv dédié (.venv_4dgs).
     """
     def __init__(self, logger_callback=None, status_callback=None):
         super().__init__("4DGS", logger_callback)
@@ -15,11 +35,14 @@ class FourDGSEngine(BaseEngine):
         
         # Resolve binaries
         self.ffmpeg = resolve_binary("ffmpeg") or "ffmpeg"
-        self.colmap = resolve_binary("colmap") or "colmap" 
+        self.colmap = resolve_binary("colmap") or "colmap"
+        self.venv_python = get_venv_4dgs_python()
+        self.ns_process_data = str(_get_ns_process_data_path())
         
     def check_nerfstudio(self):
-        """Vérifie si ns-process-data est disponible"""
-        return shutil.which("ns-process-data") is not None
+        """Vérifie si ns-process-data est disponible dans le venv dédié"""
+        ns_path = _get_ns_process_data_path()
+        return ns_path.exists()
 
     def extract_frames(self, video_path, output_dir, fps=5):
         """Extrait les frames d'une vidéo avec ffmpeg"""
@@ -121,11 +144,12 @@ class FourDGSEngine(BaseEngine):
         self.log("Extraction terminée.")
         
         if self.check_nerfstudio():
-            self.log("ns-process-data détecté. Lancement du processing Nerfstudio...")
+            self.log("ns-process-data détecté (venv_4dgs). Lancement du processing Nerfstudio...")
             self.status("Traitement Nerfstudio en cours...")
             
+            # Use the dedicated venv script
             cmd_ns = [
-                "ns-process-data", "images",
+                self.ns_process_data, "images",
                 "--data", str(images_root),
                 "--output-dir", str(output_dir),
                 "--verbose"

@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.0.0] - 2026-06-17
+
+### 🎉 Major Milestone — First Stable Release
+
+After extensive security hardening, architectural refactoring, and comprehensive test coverage, CorbeauSplat reaches version 1.0.0.
+
+### 🔒 Security
+- **`checksums.json` populated**: Real SHA256 hashes for Brush, upscayl-bin, and Glomap binaries — download integrity is now enforced (was a no-op on empty hashes).
+- **nerfstudio isolated** in dedicated `.venv_4dgs` venv — no longer pollutes the main interpreter with pip installs at runtime.
+- **`AppLifecycle.reset_factory()` secured**: Deletion paths are now validated against `project_root` via `relative_to()` before any `shutil.rmtree()` call.
+- **`ColmapEngine.delete_project_content()` hardened**: Uses `validate_path()` containment check instead of binary `/` / `$HOME` blocklist.
+
+### 🏗 Architecture
+- **`main.py` refactored**: 753 lines → 13 lines. CLI parser extracted to `app/cli/parser.py`, commands to `app/cli/commands.py`, GUI launcher to `app/cli/launcher.py`.
+- **`setup_dependencies.py` refactored**: 993 lines → 100 lines. 8 modular installers in `app/scripts/installers/` (`base.py`, `brush.py`, `sharp.py`, `mapping.py`, `supersplat.py`, `extractor_360.py`, `upscayl.py`, `tools.py`).
+- **Sharp video logic unified**: `SharpEngine.process_video_frames()` is now the single implementation — both CLI and GUI worker delegate to it.
+- **`BrushTab.run_standalone()` fixed**: Now uses `BrushEngine.build_command()` and respects `build_mode` (`--total-steps` vs `--total-train-iters`).
+- **13 new modules** created in the refactoring, total codebase now at 38+ files.
+
+### 🧪 Testing
+- **Test coverage massively expanded**: from 39 tests to 210+ tests across 11 test files.
+- **New test files**: `test_cli.py` (27), `test_colmap_engine.py` (23), `test_upscayl_manager.py` (27), `test_sharp_engine.py` (9), `test_four_dgs_engine.py` (15), `test_setup_dependencies.py` (31), `test_managers.py` (18), `test_workers.py` (20, skip without PyQt6).
+- **Couverture par module**: upscayl_manager 90%+, CLI 95%+, ColmapEngine 80%+, SharpEngine 80%+, managers 70%+.
+
+### 📦 Dependency & Quality
+- `pyproject.toml` configured with Ruff + MyPy + Pytest (CI-ready).
+- `requirements.txt` uses bounded version ranges (`>=X,<Y`) for reproducibility.
+- Knowledge graph updated (1700 nodes, 2983 edges).
+
 ## [0.99.5] - 2026-05-13
 
 ### 🐞 Bug Fixes

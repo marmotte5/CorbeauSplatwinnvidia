@@ -176,14 +176,6 @@ class BrushWorker(BaseWorker):
                 self.finished_signal.emit(False, f"Le dossier dataset n'existe pas: {resolved_input}")
                 return
 
-            # Gestion de la résolution manuelle
-            custom_args = self.params.get("custom_args") or ""
-            max_res = self.params.get("max_resolution", 0)
-            
-            if max_res > 0:
-                custom_args += f" --max-resolution {max_res}"
-                self.log_signal.emit(f"Opération: Résolution forcée à {max_res}px")
-            
             # Gestion Refine Auto (Prioritaire sur Init PLY manuel)
             refine_mode = self.params.get("refine_mode")
             
@@ -281,29 +273,6 @@ class BrushWorker(BaseWorker):
                     output_dir.mkdir(parents=True, exist_ok=True)
                     self.output_path = output_dir
                     self.log_signal.emit(f"Nouveau training : anciens checkpoints archivés dans '{backup_name}'")
-
-            # Args Densification
-            densify_args = []
-            if "start_iter" in self.params: densify_args.append(f"--start-iter {self.params['start_iter']}")
-            if "refine_every" in self.params: densify_args.append(f"--refine-every {self.params['refine_every']}")
-            if "growth_grad_threshold" in self.params: densify_args.append(f"--growth-grad-threshold {self.params['growth_grad_threshold']}")
-            if "growth_select_fraction" in self.params: densify_args.append(f"--growth-select-fraction {self.params['growth_select_fraction']}")
-            if "growth_stop_iter" in self.params: densify_args.append(f"--growth-stop-iter {self.params['growth_stop_iter']}")
-            if "max_splats" in self.params: densify_args.append(f"--max-splats {self.params['max_splats']}")
-            
-            # Checkpoint Interval (Mapped to --eval-every as per Brush CLI)
-            ckpt_interval = self.params.get("checkpoint_interval", 7000)
-            if ckpt_interval > 0:
-                densify_args.append(f"--eval-every {ckpt_interval}")
-            
-            if densify_args:
-                custom_args += " " + " ".join(densify_args)
-                
-            self.params['custom_args'] = custom_args.strip()
-
-            # Renommer les checkpoints existants avant l'entraînement
-            if self.project_name:
-                self._rename_checkpoints_with_project_name()
 
             # Construct CMD
             self.log_signal.emit("Lancement de la commande Brush...")
@@ -494,103 +463,29 @@ class SharpVideoWorker(BaseWorker):
         super().stop()
         
     def run(self):
+        """Process video frames using the shared SharpEngine.process_video_frames pipeline."""
         try:
             self.status_signal.emit(tr("sharp_msg_extract_frames"))
             self.log_signal.emit(tr("sharp_msg_extract_frames"))
             
-            video_path = Path(self.video_path)
-            output_dir = Path(self.output_path)
+            success_count = self.engine.process_video_frames(
+                video_path=self.video_path,
+                output_dir=self.output_path,
+                params=self.params,
+                log_callback=self.log_signal.emit,
+                status_callback=self.status_signal.emit,
+                progress_callback=self.progress_signal.emit,
+                cancel_check=self.isInterruptionRequested,
+            )
             
-            # 1. Create temporary frames directory
-            frames_dir = output_dir / "temp_frames"
-            frames_dir.mkdir(parents=True, exist_ok=True)
-            
-            # Clean directory
-            for f in frames_dir.glob("*.png"):
-                f.unlink()
-                
-            skip = max(1, int(self.params.get("skip_frames", 1)))
-
-            # 2. Extract frames using ffmpeg
-            ffmpeg_bin = shutil.which("ffmpeg") or "ffmpeg"
-            cmd = [
-                ffmpeg_bin, "-y", "-i", str(video_path),
-                "-vf", f"select=not(mod(n\\,{skip}))",
-                "-vsync", "vfr", "-q:v", "1",
-                str(frames_dir / "frame_%04d.png")
-            ]
-            self.log_signal.emit(f"Running: {' '.join(cmd)}")
-            
-            env = os.environ.copy()
-
-            try:
-                result = subprocess.run(cmd, capture_output=True, text=True, env=env)
-            except FileNotFoundError:
-                self.log_signal.emit("Erreur : FFmpeg introuvable. Installez-le via Homebrew : brew install ffmpeg")
-                self.finished_signal.emit(False, "FFmpeg non installé.")
-                return
-            if result.returncode != 0:
-                self.log_signal.emit(f"FFmpeg error: {result.stderr}")
-                self.finished_signal.emit(False, tr("sharp_err_ffmpeg"))
-                return
-                
-            # Count extracted frames
-            frames = sorted(list(frames_dir.glob("*.png")))
-            total_frames = len(frames)
-            
-            if total_frames == 0:
-                self.finished_signal.emit(False, "Aucune frame extraite. Vérifiez la vidéo ou le frame skip.")
-                return
-                
-            self.log_signal.emit(f"Total frames extraites: {total_frames}")
-            
-            # 3. Process each frame with SHARP
-            success_count = 0
-            for current_idx, frame_path in enumerate(frames):
-                if self.isInterruptionRequested():
-                    self.log_signal.emit("--- Arrêté par l'utilisateur ---")
-                    break
-                    
-                display_idx = current_idx + 1
-                self.status_signal.emit(tr("sharp_msg_process_frame", display_idx, total_frames))
-                self.log_signal.emit(f"Processing frame {display_idx}/{total_frames}: {frame_path.name}")
-                
-                # Output dir for this frame
-                frame_out_dir = output_dir / frame_path.stem
-                
-                # Predict
-                returncode = self.engine.predict(str(frame_path), str(frame_out_dir), self.params)
-                
-                if returncode == 0:
-                    # 4. Copy the resulting PLY to the main dir
-                    ply_files = list(frame_out_dir.rglob("*.ply"))
-                    if ply_files:
-                        first_ply = ply_files[0]
-                        dest_ply = output_dir / f"{frame_path.stem}.ply"
-                        shutil.copy2(first_ply, dest_ply)
-                        self.log_signal.emit(f"Saved: {dest_ply.name}")
-                        success_count += 1
-                        
-                # Progress update
-                progress = int((display_idx / total_frames) * 100)
-                self.progress_signal.emit(progress)
-                
-                # Cleanup temp dir for frame
-                if frame_out_dir.exists():
-                    shutil.rmtree(frame_out_dir)
-                    
             if success_count > 0:
-                self.finished_signal.emit(True, f"Conversion Video -> PLY terminée. {success_count}/{total_frames} frames traitées avec succès.")
+                self.finished_signal.emit(True, f"Conversion Video -> PLY terminée. {success_count} frames traitées avec succès.")
             else:
                 self.finished_signal.emit(False, "Aucune frame n'a pu être traitée par SHARP.")
 
         except Exception as e:
             self.log_signal.emit(f"EXCEPTION: {e}\n{traceback.format_exc()}")
             self.finished_signal.emit(False, str(e))
-        finally:
-            # 5. Cleanup temp frames
-            if 'frames_dir' in locals() and frames_dir.exists():
-                shutil.rmtree(frames_dir)
 
 
 # ---------------------------------------------------------------------

@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 # Move to script directory
 cd "$(dirname "$0")"
@@ -107,7 +108,7 @@ fi
 # --- Phase 1: Update Check ---
 if [ -d ".git" ]; then
     echo "--- Phase 1: Checking for updates ---"
-    git fetch > /dev/null 2>&1
+    git fetch > /dev/null 2>&1 || true
     
     if git rev-parse --abbrev-ref --symbolic-full-name @{u} > /dev/null 2>&1; then
         BEHIND_COUNT=$(git rev-list --count HEAD..@{u})
@@ -162,10 +163,16 @@ echo "Using environment Python: $($PYTHON_CMD --version)"
 echo "✅ Environment configured."
 
 # Integrity check
+_REBUILD_COUNT="${_REBUILD_COUNT:-0}"
 if ! "$PYTHON_CMD" -c "import json, os, sys" > /dev/null 2>&1; then
-    echo "❌ FAILURE: Python environment is unstable. Forcing rebuild..."
+    _REBUILD_COUNT=$((_REBUILD_COUNT + 1))
+    if [ "$_REBUILD_COUNT" -gt 2 ]; then
+        echo "❌ FATAL: Environment rebuild loop detected. Aborting."
+        exit 1
+    fi
+    echo "❌ FAILURE: Python environment is unstable. Forcing rebuild (attempt ${_REBUILD_COUNT}/2)..."
     rm -rf "$VENV_DIR"
-    exec "$0" "$@"
+    exec env _REBUILD_COUNT="$_REBUILD_COUNT" "$0" "$@"
     exit 1
 fi
 echo "✅ Python environment integrity verified."
@@ -229,4 +236,8 @@ fi
 # --- Phase 5: Launch ---
 echo "--- Phase 5: Launching CorbeauSplat ---"
 echo "------------------------------------------------"
-"$PYTHON_CMD" main.py "${FILTERED_ARGS[@]}"
+if [ ${#FILTERED_ARGS[@]} -gt 0 ]; then
+    "$PYTHON_CMD" main.py "${FILTERED_ARGS[@]}"
+else
+    "$PYTHON_CMD" main.py
+fi

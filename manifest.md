@@ -1,6 +1,6 @@
 # CorbeauSplat — Project Manifest
 
-> Version 0.99.5 — macOS Apple Silicon Gaussian Splatting Pipeline
+> Version 1.0.0 — macOS Apple Silicon Gaussian Splatting Pipeline
 
 ## Identity
 
@@ -30,7 +30,7 @@ python3 main.py upscale -i image.png -o ~/out --scale 4
 ```
 main.py                         ← Entry: CLI parser or GUI launcher
 ├── app/
-│   ├── __init__.py             ← VERSION = "0.99.1"
+│   ├── __init__.py             ← VERSION = "1.0.0"
 │   ├── upscayl_manager.py      ← Binary download, model management
 │   ├── upscayl_models.py       ← 6 model catalogue definitions
 │   │
@@ -67,7 +67,8 @@ main.py                         ← Entry: CLI parser or GUI launcher
 │   │       └── logs_tab.py          ← Log viewer
 │   │
 │   └── scripts/
-│       └── setup_dependencies.py ← Engine installer (908 lines)
+│       ├── setup_dependencies.py ← Engine installer (orchestrator, ~100 lines)
+│       └── installers/          ← 8 modular engine installers
 │
 ├── engines/                     ← External engine binaries/sources
 │   ├── brush/                   ← Gaussian Splat trainer binary
@@ -79,7 +80,7 @@ main.py                         ← Entry: CLI parser or GUI launcher
 │
 ├── config.json                  ← User config (session persistence)
 ├── assets/locales/              ← 9 locale JSON files (fr, en, de, es, it, ja, zh, ru, ar)
-└── main.py                      ← Entry point (785 lines)
+└── main.py                      ← Entry point (13 lines, delegated to app/cli/)
 ```
 
 ## Key Design Patterns
@@ -125,8 +126,9 @@ main.py                         ← Entry: CLI parser or GUI launcher
 
 ## Known Issues & Gaps
 
-1. **Zero test coverage** — no unit tests for any engine (~10,500 untested LOC)
+1. **Workers not tested** — `test_workers.py` requires PyQt6 runtime, skipped in headless CI
 2. **`gui/widgets/dialog_utils.py`**: Created dialog helpers but config_tab.py still uses raw `QFileDialog` in some paths
+3. **No end-to-end integration tests** — all 200+ tests are unit-level with mocked subprocesses
 
 ## Recently Fixed (v0.99.3+)
 

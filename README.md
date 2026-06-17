@@ -1,6 +1,9 @@
-# CorbeauSplat
+# CorbeauSplat v1.0.0
 
-**CorbeauSplat** is an all-in-one Gaussian Splatting automation tool designed specifically for **macOS Silicon** . It streamlines the entire workflow from raw video/images to a fully trained and viewable 3D scene (Gaussian Splat).
+**CorbeauSplat** is an all-in-one Gaussian Splatting automation tool designed specifically for **macOS Silicon**. It streamlines the entire workflow from raw video/images to a fully trained and viewable 3D scene (Gaussian Splat).
+
+> 🎉 **v1.0.0 — First Stable Release**  
+> After extensive security hardening, architectural refactoring, and 200+ unit tests.
 
 <div align="center">
 
@@ -85,7 +88,7 @@ It also includes built-in full localization support for **French, English, Germa
     -   **Activate**: Install the dedicated environment (PySide6, YOLOv8).
     -   **Convert**: Extract images from 360° videos with advanced layouts (Ring, Cube Map, Fibonacci).
     -   **AI Masking**: Automatically mask the operator.
-86. **Apple Sharp Tab (Bonus)**:
+8. **Apple Sharp Tab (Bonus)**:
     -   Select a single source image or a **Video**.
     -   Click **"Predict 3D Model"** or **"Start Conversion"** to generate a mesh sequence using machine learning.
 

@@ -1,9 +1,11 @@
 import os
 import sys
 import subprocess
+import shutil
 from pathlib import Path
+from typing import Optional, Callable
 from .base_engine import BaseEngine
-from .system import resolve_project_root
+from .system import resolve_project_root, is_apple_silicon
 
 class SharpEngine(BaseEngine):
     """Moteur d'execution pour Apple ML Sharp"""
@@ -97,3 +99,127 @@ class SharpEngine(BaseEngine):
         
         # GoF-Template Method : Délégation au runner 
         return self._execute_command(cmd, env=env)
+
+    def process_video_frames(self, video_path: str, output_dir: str,
+                             params: Optional[dict] = None,
+                             log_callback: Optional[Callable] = None,
+                             status_callback: Optional[Callable] = None,
+                             progress_callback: Optional[Callable] = None,
+                             cancel_check: Optional[Callable] = None) -> int:
+        """Shared video frame extraction + Sharp prediction pipeline.
+        
+        Extracts frames from a video via ffmpeg, runs Sharp on each frame,
+        collects resulting PLY files, and cleans up temporary data.
+        
+        Parameters
+        ----------
+        video_path: str
+            Path to the input video file.
+        output_dir: str
+            Directory where output PLY files will be placed.
+        params: dict, optional
+            Sharp parameters (skip_frames, etc.).
+        log_callback: callable, optional
+            Called with each log message.
+        status_callback: callable, optional
+            Called with status updates.
+        progress_callback: callable, optional
+            Called with integer percentage (0-100).
+        cancel_check: callable, optional
+            Called before each frame; if returns True, processing stops.
+            
+        Returns
+        -------
+        int
+            Number of successfully processed frames.
+        """
+        params = params or {}
+        skip = max(1, int(params.get("skip_frames", 1)))
+        
+        vp = Path(video_path)
+        out = Path(output_dir)
+        
+        frames_dir = out / "temp_frames"
+        frames_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Clean previous frames
+        for f in frames_dir.glob("*.png"):
+            f.unlink()
+        
+        # Extract frames via ffmpeg
+        ffmpeg_bin = shutil.which("ffmpeg") or "ffmpeg"
+        ffmpeg_cmd = [ffmpeg_bin]
+        if is_apple_silicon():
+            ffmpeg_cmd.extend(["-hwaccel", "videotoolbox"])
+        ffmpeg_cmd.extend([
+            "-y", "-i", str(vp),
+            "-vf", f"select=not(mod(n\\,{skip}))",
+            "-vsync", "vfr", "-q:v", "1",
+            str(frames_dir / "frame_%04d.png"),
+        ])
+        
+        if log_callback:
+            log_callback(f"Running: {' '.join(ffmpeg_cmd)}")
+        
+        try:
+            result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True)
+        except FileNotFoundError:
+            if log_callback:
+                log_callback("Erreur : FFmpeg introuvable.")
+            shutil.rmtree(frames_dir, ignore_errors=True)
+            return 0
+        
+        if result.returncode != 0:
+            if log_callback:
+                log_callback(f"FFmpeg error: {result.stderr}")
+            shutil.rmtree(frames_dir, ignore_errors=True)
+            return 0
+        
+        frames = sorted(frames_dir.glob("*.png"))
+        total_frames = len(frames)
+        
+        if total_frames == 0:
+            if log_callback:
+                log_callback("Aucune frame extraite.")
+            shutil.rmtree(frames_dir, ignore_errors=True)
+            return 0
+        
+        if log_callback:
+            log_callback(f"Total frames extraites: {total_frames}")
+        
+        success_count = 0
+        for idx, frame_path in enumerate(frames):
+            if cancel_check and cancel_check():
+                if log_callback:
+                    log_callback("--- Arrêté par l'utilisateur ---")
+                break
+            
+            display_idx = idx + 1
+            if status_callback:
+                status_callback(f"Processing frame {display_idx}/{total_frames}")
+            if log_callback:
+                log_callback(f"Processing frame {display_idx}/{total_frames}: {frame_path.name}")
+            
+            frame_out_dir = out / frame_path.stem
+            returncode = self.predict(str(frame_path), str(frame_out_dir), params)
+            
+            if returncode == 0:
+                ply_files = list(frame_out_dir.rglob("*.ply"))
+                if ply_files:
+                    dest_ply = out / f"{frame_path.stem}.ply"
+                    shutil.copy2(ply_files[0], dest_ply)
+                    if log_callback:
+                        log_callback(f"Saved: {dest_ply.name}")
+                    success_count += 1
+            
+            if progress_callback:
+                progress_callback(int((display_idx / total_frames) * 100))
+            
+            if frame_out_dir.exists():
+                shutil.rmtree(frame_out_dir)
+        
+        # Cleanup temp frames
+        if frames_dir.exists():
+            shutil.rmtree(frames_dir, ignore_errors=True)
+        
+        return success_count

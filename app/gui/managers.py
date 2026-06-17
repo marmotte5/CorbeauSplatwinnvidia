@@ -145,36 +145,55 @@ class AppLifecycle:
     def reset_factory(deep=False):
         QApplication.quit()
         
-        root_dir = resolve_project_root()
+        root_dir = resolve_project_root().resolve()
         run_cmd = root_dir / "run.command"
         
-        to_delete = [
-            root_dir / ".venv",
-            root_dir / ".venv_sharp",
-            root_dir / ".venv_360"
-        ]
+        # Collect deletion targets (relative names only)
+        targets_rel = [".venv", ".venv_sharp", ".venv_360"]
         
         if deep:
-            to_delete.append(root_dir / "engines")
-            to_delete.append(root_dir / "config.json")
-            for p in root_dir.glob("config.sync-conflict-*"):
-                to_delete.append(p)
+            targets_rel.append("engines")
+            targets_rel.append("config.json")
         
         logger.info("Reset Factory %s initié sur: %s", "DEEP" if deep else "LIGHT", root_dir)
-
-        # Spawn a standalone Python subprocess to delete dirs + relaunch
-        import json, tempfile
-        delete_paths = json.dumps([str(p) for p in to_delete])
-        run_cmd_str = json.dumps(str(run_cmd))
-        cleanup_script = (
-            "import time, shutil, subprocess, json\n"
-            "time.sleep(2)\n"
-            f"for p in json.loads({delete_paths}):\n"
-            "    shutil.rmtree(p, ignore_errors=True)\n"
-            f"subprocess.Popen(['open', {run_cmd_str}])\n"
-        )
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as tmp:
-            tmp.write(cleanup_script)
-            tmp_path = tmp.name
-        subprocess.Popen([sys.executable, tmp_path], start_new_session=True)
+        
+        # Validate containment: every target must resolve inside project root
+        import shutil as _shutil
+        for rel in list(targets_rel):
+            target = (root_dir / rel).resolve()
+            try:
+                target.relative_to(root_dir)
+            except ValueError:
+                logger.warning("Reset blocked: path outside project root — %s", target)
+                targets_rel.remove(rel)
+            else:
+                # Remove the target if it exists
+                if not target.exists():
+                    continue
+                try:
+                    logger.warning("Reset: removing %s", target)
+                    if target.is_dir():
+                        _shutil.rmtree(target, ignore_errors=False)
+                    else:
+                        target.unlink()
+                except OSError as e:
+                    logger.warning("Reset: could not remove %s — %s", target, e)
+        
+        # Also clean deep sync-conflict files
+        if deep:
+            for p in root_dir.glob("config.sync-conflict-*"):
+                try:
+                    p.relative_to(root_dir)
+                    logger.warning("Reset: removing %s", p)
+                    p.unlink()
+                except (ValueError, OSError):
+                    pass
+        
+        # Relaunch via run.command
+        if run_cmd.exists():
+            logger.info("Reset: relaunching via %s", run_cmd)
+            subprocess.Popen(["open", str(run_cmd)], start_new_session=True)
+        else:
+            logger.warning("Reset: run.command not found at %s, relaunching main.py", run_cmd)
+            subprocess.Popen([sys.executable, str(root_dir / "main.py"), "--gui"], start_new_session=True)
         sys.exit(0)

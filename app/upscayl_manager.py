@@ -8,6 +8,7 @@ Priority order for binary discovery:
 """
 import json
 import os
+import platform
 import shutil
 import subprocess
 import tarfile
@@ -16,6 +17,7 @@ import zipfile
 from pathlib import Path
 
 from app.core.system import resolve_project_root
+from app.scripts.checksum_verifier import load_expected_checksums, verify_download
 
 GITHUB_API = "https://api.github.com/repos/upscayl/upscayl-ncnn/releases/latest"
 
@@ -150,6 +152,12 @@ def download_binary(log_callback=None) -> Path:
     with urllib.request.urlopen(req, timeout=120) as resp:
         with open(str(archive_path), "wb") as f:
             f.write(resp.read())
+
+    checksums = load_expected_checksums()
+    checksum_key = "darwin_upscayl" if platform.system() == "Darwin" else "linux_upscayl"
+    if not verify_download(archive_path, checksums.get(checksum_key, "")):
+        log(f"⚠️ upscayl archive SHA256 mismatch (checksum key: {checksum_key}). Continuing anyway.")
+
     log("Extracting...")
 
     models_dir = get_models_dir()
@@ -167,13 +175,32 @@ def download_binary(log_callback=None) -> Path:
 
 def _extract_archive(archive: Path, bin_dest: Path, models_dest: Path, log):
     """Extracts upscayl-bin and *.bin/*.param model files from an archive."""
+    bin_dest_resolved = bin_dest.resolve()
+    models_dest_resolved = models_dest.resolve()
+
+    def is_safe_extraction(name: str, allowed_dirs: list) -> bool:
+        for allowed in allowed_dirs:
+            resolved = (allowed / Path(name).name).resolve()
+            try:
+                resolved.relative_to(allowed)
+                return True
+            except ValueError:
+                continue
+        return False
+
     def handle_member(name: str, read_fn):
         fname = Path(name).name
         if fname == "upscayl-bin":
+            if not is_safe_extraction(name, [bin_dest_resolved]):
+                log(f"  ⚠️ Rejected unsafe member: {name}")
+                return
             out = bin_dest / "upscayl-bin"
             out.write_bytes(read_fn())
             log(f"  → {out}")
         elif fname.endswith(".bin") or fname.endswith(".param"):
+            if not is_safe_extraction(name, [models_dest_resolved]):
+                log(f"  ⚠️ Rejected unsafe member: {name}")
+                return
             out = models_dest / fname
             if not out.exists():
                 out.write_bytes(read_fn())

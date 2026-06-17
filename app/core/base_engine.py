@@ -152,18 +152,20 @@ class BaseEngine:
         process.wait()
 
     def validate_path(self, path):
-        """Resolves and validates a path to prevent traversal"""
+        """Resolves and validates a path to prevent traversal using resolved containment"""
         if not path:
             return None
         try:
             p = Path(path).resolve()
-            allowed_bases = [
-                str(self.project_root),
-                str(Path.home())
-            ]
-            if not any(str(p).startswith(base) for base in allowed_bases):
-                self.log(f"SECURITY WARNING: Path access outside allowed boundaries: {p}")
-            return p
+            allowed_bases = [self.project_root.resolve(), Path.home().resolve()]
+            for base in allowed_bases:
+                try:
+                    p.relative_to(base)
+                    return p
+                except ValueError:
+                    pass
+            self.log(f"SECURITY WARNING: Path access outside allowed boundaries: {p}")
+            return None
         except (TypeError, ValueError, OSError) as e:
             self.log(f"ERROR: Invalid path attempt : {path} ({e})")
             return None

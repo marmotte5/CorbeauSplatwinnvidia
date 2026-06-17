@@ -30,7 +30,6 @@ class SuperSplatEngine(BaseEngine):
             Callback used by the base class to forward log messages to the UI.
         """
         super().__init__("SuperSplat", logger_callback)
-        self.supersplat_process: Optional[subprocess.Popen] = None
         self.data_server_process: Optional[subprocess.Popen] = None
         self.data_server_thread: Optional[threading.Thread] = None
         self.httpd: Optional[socketserver.TCPServer] = None
@@ -66,7 +65,14 @@ class SuperSplatEngine(BaseEngine):
         cmd = ["npx", "serve", "dist", "-p", str(port), "--no-clipboard"]
         try:
             self.runner.start(cmd, env=os.environ.copy(), cwd=str(splat_path))
-            self.supersplat_process = getattr(self.runner, '_process', None)
+
+            def _consume_stdout():
+                for line in self.runner.stdout_iter():
+                    stripped = line.strip()
+                    if stripped:
+                        self.log(stripped)
+
+            threading.Thread(target=_consume_stdout, daemon=True).start()
             self.log(f"SuperSplat démarré sur http://localhost:{port}")
             return True, f"SuperSplat démarré sur http://localhost:{port}"
         except Exception as e:
@@ -75,10 +81,8 @@ class SuperSplatEngine(BaseEngine):
 
     def stop_supersplat(self) -> None:
         """Terminate the SuperSplat viewer process if it is running."""
-        if self.supersplat_process:
-            self._kill_process(self.supersplat_process)
-            self.supersplat_process = None
-            self.log("SuperSplat arrêté")
+        self.runner.terminate()
+        self.log("SuperSplat arrêté")
 
     # ---------------------------------------------------------------------
     # Data server (CORS‑enabled) management
