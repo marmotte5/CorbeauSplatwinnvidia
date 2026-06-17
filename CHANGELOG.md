@@ -27,7 +27,20 @@ After extensive security hardening, architectural refactoring, and comprehensive
 ### 📦 Dependency & Quality
 - `pyproject.toml` configured with Ruff + MyPy + Pytest (CI-ready).
 - `requirements.txt` uses bounded version ranges (`>=X,<Y`) for reproducibility.
-- Knowledge graph updated (1700 nodes, 2983 edges).
+- `requirements.lock` with pinned versions for reproducible builds.
+- `requirements-dev.txt` for CI/development tooling.
+- CI pipeline expanded to 4 jobs: lint, test (3 Python versions), test-gui (macOS), pip-audit.
+
+### 🔒 Security (post-release hardening)
+- **Homebrew installation secured**: `run.command` now downloads the install script from a pinned tag (`4.4.23`), verifies its SHA256 checksum before execution, and rejects on mismatch. No more blind `curl | bash`.
+- **`checksums.json` completed**: `darwin_rustup` and `linux_rustup` SHA256 fingerprints added (`6c30b75a...`).
+- **`ColmapEngine.delete_project_content()` restricted**: Removed `Path.home()` allowance — deletions are now limited to `project_root` only.
+- **`DropLineEdit` containment validation**: New `set_allowed_base_dirs()` method. ConfigTab and BrushTab now validate dropped paths against the project root.
+- **Upscayl model integrity**: `UpscaylModel.sha256_bin`/`sha256_param` fields added. `verify_integrity()` and post-download SHA256 verification for 3 of 6 models (realesrgan, 4xLSDIR, 4xNomos8kSC).
+- **Exception hygiene**: Bare `except:` in `install_node_js()` and `install_build_tools()` replaced with typed `(subprocess.CalledProcessError, OSError)` handlers.
+
+### 🏗 Code Quality
+- **`app/core/ply_utils.py` created**: SPZ compression functions and manual PLY parser extracted from `export_engine.py` (722→658 lines) as standalone, testable functions.
 
 ## [0.99.5] - 2026-05-13
 
