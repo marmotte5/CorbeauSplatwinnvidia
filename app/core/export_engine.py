@@ -1,12 +1,14 @@
 import os
 import shutil
 import subprocess
-import struct
-import math
 from pathlib import Path
 from typing import Optional, Callable
 
 from .base_engine import BaseEngine
+from .ply_utils import (
+    compress_scale, compress_rotation, compress_alpha,
+    write_spz_header, write_spz_data, parse_ply_manual,
+)
 
 
 class ExportEngine(BaseEngine):
@@ -449,7 +451,7 @@ class ExportEngine(BaseEngine):
                         s0 = max(0.001, float(data.get('scale_0', -2.0)))
                         s1 = max(0.001, float(data.get('scale_1', -2.0)))
                         s2 = max(0.001, float(data.get('scale_2', -2.0)))
-                        scales.extend(self._compress_scale(s0, s1, s2))
+                        scales.extend(compress_scale(s0, s1, s2))
                     else:
                         scales.extend([0, 0, 0])
 
@@ -463,42 +465,26 @@ class ExportEngine(BaseEngine):
                         norm = math.sqrt(r0*r0 + r1*r1 + r2*r2 + r3*r3)
                         if norm > 0:
                             r0, r1, r2, r3 = r0/norm, r1/norm, r2/norm, r3/norm
-                        rotations.extend(self._compress_rotation(r0, r1, r2, r3))
+                        rotations.extend(compress_rotation(r0, r1, r2, r3))
                     else:
                         rotations.extend([127, 127, 127])  # Identity rotation
 
                     # Alphas (opacity) - may not be present, default to 1.0
                     if 'opacity' in data.dtype.names:
                         alpha = float(data['opacity'])
-                        alphas.append(self._compress_alpha(alpha))
+                        alphas.append(compress_alpha(alpha))
                     else:
                         alphas.append(255)  # Fully opaque
 
             except ImportError:
                 # Fallback: parse PLY manually
-                positions, colors, scales, rotations, alphas = self._parse_ply_manual(input_file)
+                positions, colors, scales, rotations, alphas = parse_ply_manual(input_file)
                 num_points = len(positions) // 3
 
             # Write SPZ file
             with open(output_file, 'wb') as f:
-                # Header
-                f.write(b'SPZ\x00')
-                # Version
-                f.write(struct.pack('<I', 1))
-                # Num points
-                f.write(struct.pack('<I', num_points))
-
-                # Write data
-                # Positions as float32
-                f.write(struct.pack(f'<{len(positions)}f', *positions))
-                # Colors as uint8
-                f.write(bytes(colors))
-                # Scales as uint8
-                f.write(bytes(scales))
-                # Rotations as uint8
-                f.write(bytes(rotations))
-                # Alphas as uint8
-                f.write(bytes(alphas))
+                write_spz_header(f, num_points)
+                write_spz_data(f, positions, colors, scales, rotations, alphas)
 
             self.log(f"Exporté SPZ: {output_file} ({num_points} points)")
             return True
@@ -507,57 +493,8 @@ class ExportEngine(BaseEngine):
             self.log(f"Erreur export SPZ: {e}")
             return False
 
-    def _compress_scale(self, s0: float, s1: float, s2: float) -> list:
-        """Compress scale values using log encoding."""
-        # Log scale encoding: store log(scale) with range [-10, 10]
-        def encode(s):
-            log_s = math.log(max(s, 1e-10))
-            # Map [-10, 10] to [0, 255]
-            val = int((log_s + 10) / 20 * 255)
-            return max(0, min(255, val))
-        return [encode(s0), encode(s1), encode(s2)]
-
-    def _compress_rotation(self, r0: float, r1: float, r2: float, r3: float) -> list:
-        """Compress quaternion using octahedral encoding."""
-        # Convert quaternion to octahedral encoding
-        # r0 is the scalar (w), r1-r3 are the vector (x,y,z)
-        if r0 < 0:
-            r0, r1, r2, r3 = -r0, -r1, -r2, -r3
-
-        # Project to octahedron
-        sum_abs = abs(r1) + abs(r2) + abs(r3)
-        if sum_abs > 0:
-            x = r1 / sum_abs
-            y = r2 / sum_abs
-            z = r3 / sum_abs
-        else:
-            x, y, z = 0, 0, 0
-
-        # Octahedral projection
-        if z >= 0:
-            u = x
-            v = y
-        else:
-            # Fold the bottom half
-            u = (1 - abs(y)) * (1 if x >= 0 else -1)
-            v = (1 - abs(x)) * (1 if y >= 0 else -1)
-
-        # Map [-1, 1] to [0, 255]
-        enc_u = int((u + 1) / 2 * 255)
-        enc_v = int((v + 1) / 2 * 255)
-        # Third component for z sign or precision
-        enc_z = 255 if r3 >= 0 else 0
-
-        return [max(0, min(255, enc_u)), max(0, min(255, enc_v)), enc_z]
-
-    def _compress_alpha(self, alpha: float) -> int:
-        """Compress alpha using sigmoid inverse encoding."""
-        # alpha is typically in range [-10, 10] after inverse sigmoid
-        # Map to [0, 255]
-        val = int((alpha + 10) / 20 * 255)
-        return max(0, min(255, val))
-
-    def _parse_ply_manual(self, input_file: Path) -> tuple:
+    # _compress_scale, _compress_rotation, _compress_alpha, _parse_ply_manual
+    # moved to app.core.ply_utils as standalone functions.
         """Parse PLY file manually without plyfile dependency."""
         positions = []
         colors = []

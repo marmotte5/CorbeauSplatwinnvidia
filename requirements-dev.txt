@@ -1,0 +1,16 @@
+# requirements-dev.txt — Development and CI dependencies
+# Install with: pip install -r requirements-dev.txt
+
+# Linting and type checking
+ruff>=0.11,<1
+mypy>=1.15,<2
+
+# Testing
+pytest>=9.0,<10
+pytest-qt>=4.4,<5
+
+# Security auditing
+pip-audit>=2.8,<3
+
+# Lockfile generation
+pip-tools>=7.4,<8

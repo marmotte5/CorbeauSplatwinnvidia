@@ -7,12 +7,33 @@ on:
     branches: [main]
 
 jobs:
-  lint-and-test:
+  lint:
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install linters
+        run: |
+          pip install ruff mypy
+
+      - name: Ruff lint
+        run: ruff check .
+
+      - name: Mypy type check
+        run: mypy app/ --ignore-missing-imports
+
+  test:
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
+        os: [ubuntu-latest]
 
     steps:
       - uses: actions/checkout@v4
@@ -22,21 +43,55 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install system dependencies
+      - name: Install system dependencies (Linux)
         run: |
           sudo apt-get update
-          sudo apt-get install -y libegl1-mesa libgl1-mesa-glx
+          sudo apt-get install -y libegl1-mesa libgl1-mesa-glx libegl-dev
 
       - name: Install Python dependencies
         run: |
-          pip install -r requirements.txt
-          pip install ruff mypy pytest pytest-qt
+          pip install -r requirements.lock 2>/dev/null || pip install -r requirements.txt
+          pip install pytest
 
-      - name: Ruff lint
-        run: ruff check .
+      - name: Pytest (non-GUI tests)
+        run: |
+          pytest tests/ \
+            --ignore=tests/test_workers.py \
+            --ignore=tests/test_managers.py \
+            -x -v
 
-      - name: Mypy type check
-        run: mypy app/ --ignore-missing-imports
+  test-gui:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
 
-      - name: Pytest
-        run: pytest --ignore-glob='*gui*'
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python dependencies (including Qt)
+        run: |
+          pip install -r requirements.lock 2>/dev/null || pip install -r requirements.txt
+          pip install pytest
+
+      - name: Pytest (all tests including GUI)
+        run: |
+          pytest tests/ -x -v
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pip-audit
+        run: pip install pip-audit
+
+      - name: pip-audit
+        run: |
+          pip-audit -r requirements.lock 2>/dev/null || pip-audit -r requirements.txt
