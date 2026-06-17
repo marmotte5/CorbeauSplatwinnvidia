@@ -107,7 +107,9 @@ def install_node_js():
     try:
         subprocess.check_call(["brew", "install", "node"])
         return True
-    except: return False
+    except (subprocess.CalledProcessError, OSError) as e:
+        print(f"Error installing Node.js: {e}")
+        return False
 
 
 def install_build_tools():
@@ -115,7 +117,9 @@ def install_build_tools():
     try:
         subprocess.check_call(["brew", "install", "cmake", "ninja"])
         return True
-    except: return False
+    except (subprocess.CalledProcessError, OSError) as e:
+        print(f"Error installing build tools: {e}")
+        return False
 
 
 def install_rust_toolchain():

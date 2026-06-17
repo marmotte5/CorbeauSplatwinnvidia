@@ -34,8 +34,8 @@ class TestDeleteProjectContent:
                 assert result is True
                 assert "corbeille" in msg
 
-    def test_path_inside_home(self):
-        """Chemin dans $HOME → succès."""
+    def test_path_inside_home_blocked(self):
+        """Chemin dans $HOME mais hors project_root → bloqué (sécurité renforcée)."""
         from app.core.engine import ColmapEngine
 
         home_subdir = Path.home() / ".corbeausplat_test_delete"
@@ -45,7 +45,8 @@ class TestDeleteProjectContent:
             with patch("app.core.system.resolve_project_root", return_value=Path("/tmp/fake_project")):
                 with patch("app.core.engine.send2trash.send2trash") as mock_trash:
                     result, msg = ColmapEngine.delete_project_content(home_subdir)
-                    assert result is True
+                    assert result is False
+                    assert "bloquée" in msg
         finally:
             if home_subdir.exists():
                 home_subdir.rmdir()

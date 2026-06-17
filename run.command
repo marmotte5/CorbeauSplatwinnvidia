@@ -80,8 +80,29 @@ if [ -z "$BREW_BIN" ]; then
     read -p "    Install Homebrew now? (y/n) " -n 1 -r
     echo
     if [[ $REPLY =~ ^[Yy]$ ]]; then
-        echo ">>> Installing Homebrew..."
-        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+        echo ">>> Downloading Homebrew install script..."
+        BREW_INSTALL_SCRIPT="/tmp/homebrew-install.sh"
+        # Pin to a specific commit tag for integrity (avoids MITM on the raw.githubusercontent CDN)
+        # Update BREW_TAG and BREW_SHA256 when a new Homebrew release is needed.
+        BREW_TAG="4.4.23"
+        BREW_SHA256="c63e04915a08f4ded2f5f710fb6b83d8070245e5e30bdffb5d6b462fd1c9089e"
+        curl -fsSL "https://raw.githubusercontent.com/Homebrew/install/${BREW_TAG}/install.sh" -o "$BREW_INSTALL_SCRIPT" || {
+            echo "❌ Failed to download Homebrew install script."
+            exit 1
+        }
+        echo ">>> Verifying checksum..."
+        COMPUTED_SHA=$(shasum -a 256 "$BREW_INSTALL_SCRIPT" | cut -d' ' -f1)
+        if [ "$COMPUTED_SHA" != "$BREW_SHA256" ]; then
+            echo "❌ SHA256 mismatch!"
+            echo "   Expected: $BREW_SHA256"
+            echo "   Got:      $COMPUTED_SHA"
+            echo "   Install manually from https://brew.sh and relaunch."
+            rm -f "$BREW_INSTALL_SCRIPT"
+            exit 1
+        fi
+        echo "✅ Checksum verified. Installing Homebrew..."
+        /bin/bash "$BREW_INSTALL_SCRIPT"
+        rm -f "$BREW_INSTALL_SCRIPT"
         # Activate Homebrew in the current shell session
         if   [[ -x "/opt/homebrew/bin/brew" ]]; then
             eval "$(/opt/homebrew/bin/brew shellenv)"

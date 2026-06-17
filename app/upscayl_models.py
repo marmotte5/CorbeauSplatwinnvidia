@@ -20,12 +20,30 @@ class UpscaylModel:
     bundled: bool
     url_bin: str = ""
     url_param: str = ""
+    sha256_bin: str = ""
+    sha256_param: str = ""
 
     def is_downloaded(self, models_dir: Path) -> bool:
         return (
             (models_dir / f"{self.id}.bin").exists() and
             (models_dir / f"{self.id}.param").exists()
         )
+
+    def verify_integrity(self, models_dir: Path) -> bool:
+        """Verify downloaded model files against known SHA256 hashes.
+        Returns True if hashes match, or if no hash is configured (fallback)."""
+        import hashlib
+        for ext, attr in ((".bin", "sha256_bin"), (".param", "sha256_param")):
+            expected = getattr(self, attr, "")
+            if not expected:
+                continue
+            path = models_dir / f"{self.id}{ext}"
+            if not path.exists():
+                return False
+            actual = hashlib.sha256(path.read_bytes()).hexdigest()
+            if actual != expected:
+                return False
+        return True
 
     def size_on_disk_mb(self, models_dir: Path) -> float:
         total = sum(
@@ -49,6 +67,8 @@ MODELS: list[UpscaylModel] = [
         bundled=False,
         url_bin=f"{_CUSTOM}/RealESRGAN_General_x4_v3.bin",
         url_param=f"{_CUSTOM}/RealESRGAN_General_x4_v3.param",
+        sha256_bin="85ee266b632a765a725425ba6a5620c088c8aa2939a03063b2d83b3462724cc1",
+        sha256_param="",
     ),
     UpscaylModel(
         id="RealESRGAN_General_x4_v3",
@@ -58,6 +78,8 @@ MODELS: list[UpscaylModel] = [
         bundled=False,
         url_bin=f"{_CUSTOM}/RealESRGAN_General_x4_v3.bin",
         url_param=f"{_CUSTOM}/RealESRGAN_General_x4_v3.param",
+        sha256_bin="85ee266b632a765a725425ba6a5620c088c8aa2939a03063b2d83b3462724cc1",
+        sha256_param="",
     ),
     UpscaylModel(
         id="4xLSDIR",
@@ -67,6 +89,8 @@ MODELS: list[UpscaylModel] = [
         bundled=False,
         url_bin=f"{_CUSTOM}/4xLSDIR.bin",
         url_param=f"{_CUSTOM}/4xLSDIR.param",
+        sha256_bin="0622f182f0a940b395e4fc70e2707b285e016fa4b014e855205eb40efddfb853",
+        sha256_param="",
     ),
     UpscaylModel(
         id="4xNomos8kSC",
@@ -76,6 +100,8 @@ MODELS: list[UpscaylModel] = [
         bundled=False,
         url_bin=f"{_CUSTOM}/4xNomos8kSC.bin",
         url_param=f"{_CUSTOM}/4xNomos8kSC.param",
+        sha256_bin="da16e3880d87b177b7c6b659bbd880f8a101b868eb9ebc08d69eaa6d3edc4517",
+        sha256_param="",
     ),
     UpscaylModel(
         id="realesrgan-x4plus-anime",
@@ -85,6 +111,8 @@ MODELS: list[UpscaylModel] = [
         bundled=False,
         url_bin=f"{_CUSTOM}/realesr-animevideov3-x4.bin",
         url_param=f"{_CUSTOM}/realesr-animevideov3-x4.param",
+        sha256_bin="",
+        sha256_param="",
     ),
     UpscaylModel(
         id="4x_NMKD-Siax_200k",
@@ -94,6 +122,8 @@ MODELS: list[UpscaylModel] = [
         bundled=False,
         url_bin=f"{_CUSTOM}/4x_NMKD-Siax_200k.bin",
         url_param=f"{_CUSTOM}/4x_NMKD-Siax_200k.param",
+        sha256_bin="",
+        sha256_param="",
     ),
 ]
 

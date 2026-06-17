@@ -334,17 +334,36 @@ def resize_to_original(upscaled_dir, original_sizes_dict):
 def download_model_files(url_bin: str, url_param: str,
                          model_id: str, log_callback=None) -> bool:
     """Downloads a single model's .bin and .param files."""
+    import hashlib
     def log(msg):
         if log_callback:
             log_callback(msg)
 
+    from app.upscayl_models import get_model
+    model = get_model(model_id)
+
     models_dir = get_models_dir()
     ok = True
-    for url, ext in [(url_bin, ".bin"), (url_param, ".param")]:
+    for url, ext, sha_attr in [(url_bin, ".bin", "sha256_bin"), (url_param, ".param", "sha256_param")]:
         dest = models_dir / f"{model_id}{ext}"
         if dest.exists() and dest.stat().st_size > 1024:
-            log(f"  Already present: {dest.name}")
-            continue
+            # Verify existing file integrity if SHA256 is configured
+            if model:
+                expected = getattr(model, sha_attr, "")
+                if expected:
+                    actual = hashlib.sha256(dest.read_bytes()).hexdigest()
+                    if actual == expected:
+                        log(f"  ✅ {dest.name} (already present, checksum OK)")
+                        continue
+                    else:
+                        log(f"  ⚠️ {dest.name} checksum mismatch, re-downloading...")
+                        dest.unlink()
+                else:
+                    log(f"  Already present: {dest.name}")
+                    continue
+            else:
+                log(f"  Already present: {dest.name}")
+                continue
         try:
             log(f"Downloading {model_id}{ext}...")
             req = urllib.request.Request(url, headers={"User-Agent": "CorbeauSplat"})
@@ -358,7 +377,23 @@ def download_model_files(url_bin: str, url_param: str,
                 continue
 
             dest.write_bytes(data)
-            log(f"  ✅ {dest.name} ({len(data) // 1024 // 1024} MB)")
+
+            # Verify integrity after download
+            if model:
+                expected = getattr(model, sha_attr, "")
+                if expected:
+                    actual = hashlib.sha256(data).hexdigest()
+                    if actual == expected:
+                        log(f"  ✅ {dest.name} ({len(data) // 1024 // 1024} MB, checksum OK)")
+                    else:
+                        log(f"  ❌ {dest.name}: SHA256 mismatch (expected {expected[:16]}..., got {actual[:16]}...)")
+                        dest.unlink(missing_ok=True)
+                        ok = False
+                        continue
+                else:
+                    log(f"  ✅ {dest.name} ({len(data) // 1024 // 1024} MB)")
+            else:
+                log(f"  ✅ {dest.name} ({len(data) // 1024 // 1024} MB)")
         except Exception as e:
             log(f"  ❌ {dest.name}: {e}")
             dest.unlink(missing_ok=True)

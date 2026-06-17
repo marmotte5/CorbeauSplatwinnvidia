@@ -6,6 +6,6 @@
   "linux_upscayl": "",
   "darwin_glomap": "23c7983ee6e1d62dd96d43cec40803e457b1325424b2c28d13aed22901414aba",
   "linux_glomap": "",
-  "darwin_rustup": "",
-  "linux_rustup": ""
+  "darwin_rustup": "6c30b75a75b28a96fd913a037c8581b580080b6ee9b8169a3c0feb1af7fe8caf",
+  "linux_rustup": "6c30b75a75b28a96fd913a037c8581b580080b6ee9b8169a3c0feb1af7fe8caf"
 }

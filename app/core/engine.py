@@ -773,15 +773,13 @@ class ColmapEngine(BaseEngine):
         safe_path = Path(target_path).resolve()
         project_root = resolve_project_root().resolve()
         
-        # Validate containment: target must be inside project_root or home
+        # Validate containment: target must be inside project_root only
         allowed = False
-        for base in (project_root, Path.home().resolve()):
-            try:
-                safe_path.relative_to(base)
-                allowed = True
-                break
-            except ValueError:
-                continue
+        try:
+            safe_path.relative_to(project_root)
+            allowed = True
+        except ValueError:
+            pass
         
         if not allowed:
             logger = logging.getLogger(__name__)
