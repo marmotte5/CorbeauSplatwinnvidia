@@ -9,7 +9,6 @@ from app.core.i18n import tr
 from app.core.params import ColmapParams
 from app.core.engine import ColmapEngine
 from app.core.brush_engine import BrushEngine
-from app.core.sharp_engine import SharpEngine
 from app.core.superplat_engine import SuperSplatEngine
 from app.core.system import get_brush_build_mode
 
@@ -144,66 +143,6 @@ def run_brush(args):
     except KeyboardInterrupt:
         print(tr("cli_stopping"))
         engine.stop()
-
-
-def run_sharp(args):
-    engine = SharpEngine(logger_callback=print)
-
-    params = {
-        "checkpoint": args.checkpoint,
-        "device": args.device,
-        "verbose": args.verbose,
-    }
-
-    if args.mode == "image":
-        print(tr("cli_start_sharp"))
-        print(tr("cli_input", args.input))
-        print(tr("cli_output", args.output))
-
-        try:
-            returncode = engine.predict(args.input, args.output, params=params)
-            if returncode == 0:
-                print(tr("msg_success"))
-            else:
-                print(tr("msg_error"))
-                sys.exit(1)
-        except KeyboardInterrupt:
-            print(tr("cli_stopping"))
-            engine.stop()
-
-    else:  # video mode
-        _run_sharp_video(args, engine, params)
-
-
-def _run_sharp_video(args, engine, params):
-    """CLI handler for Sharp video mode — delegates to shared SharpEngine.process_video_frames()."""
-    video_path = _Path(args.input)
-    output_dir = _Path(args.output)
-    skip = max(1, args.skip_frames)
-
-    print(f"Sharp vidéo : {video_path.name} (1 frame / {skip})")
-    print(tr("cli_output", args.output))
-
-    params["skip_frames"] = skip
-
-    try:
-        success_count = engine.process_video_frames(
-            video_path=str(video_path),
-            output_dir=str(output_dir),
-            params=params,
-            log_callback=print,
-            status_callback=lambda s: print(f"  {s}"),
-            progress_callback=None,
-            cancel_check=None,
-        )
-    except KeyboardInterrupt:
-        print(tr("cli_stopping"))
-        engine.stop()
-        sys.exit(1)
-
-    print(f"Terminé : {success_count} frames converties.")
-    if success_count == 0:
-        sys.exit(1)
 
 
 def run_supersplat(args):
@@ -467,7 +406,6 @@ DISPATCH = {
     "pipeline":    run_pipeline,
     "colmap":      run_colmap,
     "brush":       run_brush,
-    "sharp":       run_sharp,
     "view":        run_supersplat,
     "upscale":     run_upscale,
     "4dgs":        run_4dgs,

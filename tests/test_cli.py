@@ -81,7 +81,7 @@ class TestCLIParser:
             "--preset", "dense",
             "--iterations", "50000",
             "--sh_degree", "3",
-            "--device", "mps",
+            "--device", "cuda",
             "--with_viewer",
             "--ply_name", "result.ply",
         ])
@@ -96,7 +96,7 @@ class TestCLIParser:
         assert args.preset == "dense"
         assert args.iterations == 50000
         assert args.sh_degree == 3
-        assert args.device == "mps"
+        assert args.device == "cuda"
         assert args.with_viewer is True
         assert args.ply_name == "result.ply"
 
@@ -133,39 +133,12 @@ class TestCLIParser:
             "-o", "/output",
             "--preset", "fast",
             "--iterations", "7000",
-            "--device", "mps",
+            "--device", "cuda",
         ])
         assert args.command == "brush"
         assert args.preset == "fast"
         assert args.iterations == 7000
-        assert args.device == "mps"
-
-    def test_sharp_command(self):
-        """Sous-commande sharp avec mode image (défaut)."""
-        from app.cli.parser import get_parser
-        parser = get_parser()
-        args = parser.parse_args([
-            "sharp",
-            "-i", "/input/photo.jpg",
-            "-o", "/output",
-        ])
-        assert args.command == "sharp"
-        assert args.mode == "image"
-
-    def test_sharp_video_command(self):
-        """Sous-commande sharp en mode vidéo."""
-        from app.cli.parser import get_parser
-        parser = get_parser()
-        args = parser.parse_args([
-            "sharp",
-            "-i", "/input/video.mp4",
-            "-o", "/output",
-            "--mode", "video",
-            "--skip_frames", "3",
-        ])
-        assert args.command == "sharp"
-        assert args.mode == "video"
-        assert args.skip_frames == 3
+        assert args.device == "cuda"
 
     def test_upscale_command(self):
         """Sous-commande upscale."""
@@ -297,14 +270,14 @@ class TestCLIDispatch:
                         main()
                         mock_parser.print_help.assert_called_once()
 
-    def test_main_sharp_dispatch(self):
-        """main() avec sharp → run_sharp est appelé."""
+    def test_main_colmap_dispatch(self):
+        """main() avec colmap → le handler est appelé."""
         with patch("app.cli.DISPATCH", new_callable=dict) as mock_dispatch:
             handler = MagicMock()
-            mock_dispatch["sharp"] = handler
+            mock_dispatch["colmap"] = handler
 
             with patch("app.cli.check_dependencies", return_value=[]):
-                with patch.object(sys, "argv", ["main.py", "sharp", "-i", "/in.jpg", "-o", "/out"]):
+                with patch.object(sys, "argv", ["main.py", "colmap", "-i", "/in", "-o", "/out"]):
                     from app.cli import main
                     main()
                     handler.assert_called_once()
@@ -401,47 +374,6 @@ class TestRunFunctions:
         run_brush(args)
 
         mock_engine.train.assert_called_once()
-
-    @patch("app.cli.commands.SharpEngine")
-    def test_run_sharp_image(self, mock_engine_cls):
-        """run_sharp en mode image exécute predict()."""
-        mock_engine = MagicMock()
-        mock_engine.predict.return_value = 0
-        mock_engine_cls.return_value = mock_engine
-
-        args = MagicMock()
-        args.mode = "image"
-        args.checkpoint = None
-        args.device = "default"
-        args.verbose = False
-        args.input = "/in/photo.jpg"
-        args.output = "/out"
-
-        from app.cli.commands import run_sharp
-        run_sharp(args)
-
-        mock_engine.predict.assert_called_once()
-
-    @patch("app.cli.commands.SharpEngine")
-    def test_run_sharp_video(self, mock_engine_cls):
-        """run_sharp en mode vidéo exécute process_video_frames()."""
-        mock_engine = MagicMock()
-        mock_engine.process_video_frames.return_value = 10
-        mock_engine_cls.return_value = mock_engine
-
-        args = MagicMock()
-        args.mode = "video"
-        args.checkpoint = None
-        args.device = "default"
-        args.verbose = False
-        args.input = "/in/video.mp4"
-        args.output = "/out"
-        args.skip_frames = 1
-
-        from app.cli.commands import run_sharp
-        run_sharp(args)
-
-        mock_engine.process_video_frames.assert_called_once()
 
 
 class TestPipelineRun:

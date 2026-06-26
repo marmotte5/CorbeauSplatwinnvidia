@@ -1,73 +1,56 @@
-"""COLMAP and Glomap engine dependency installers."""
+"""COLMAP and Glomap engine dependency installers (Windows/CUDA)."""
 import os
-import re
-import sys
-import json
 import shutil
 import subprocess
-from pathlib import Path
 
 from app.scripts.installers.base import EngineDependency
-from app.scripts.installers.tools import check_cmake_ninja, check_xcode_tools, install_build_tools
-
+from app.scripts.installers.tools import check_cmake_ninja, install_build_tools
 
 GLOMAP_REPO = "https://github.com/colmap/glomap.git"
 
 
-class ColmapBrewDep(EngineDependency):
-    """COLMAP géré via Homebrew — vérifie la version et met à jour si nécessaire"""
-    ask_before_update = True
+class ColmapEngineDep(EngineDependency):
+    """COLMAP on Windows — detected on PATH or in a known install folder.
+
+    CUDA-enabled COLMAP is distributed as a pre-built zip on GitHub releases
+    (colmap-x64-windows-cuda.zip). We don't auto-install it (no winget package),
+    but we detect it and guide the user when it is missing.
+    """
+    ask_before_update = False
 
     def __init__(self):
         super().__init__("colmap")
 
     def is_installed(self) -> bool:
-        return shutil.which("colmap") is not None
+        from app.core.system import resolve_binary
+        return resolve_binary("colmap") is not None
 
     def is_enabled_in_config(self, config: dict) -> bool:
-        return sys.platform == "darwin" and shutil.which("brew") is not None
+        return True  # COLMAP is required by the core pipeline
 
     def get_local_version(self) -> str:
+        from app.core.system import resolve_binary
+        colmap = resolve_binary("colmap")
+        if not colmap:
+            return ""
         try:
             out = subprocess.check_output(
-                ["brew", "list", "--versions", "colmap"],
-                text=True, stderr=subprocess.DEVNULL
+                [colmap, "--version"], text=True, stderr=subprocess.STDOUT, timeout=10
             ).strip()
-            parts = out.split()
-            if len(parts) >= 2:
-                # Strip Homebrew revision suffix (e.g., 4.0.4_2 → 4.0.4)
-                ver = parts[1]
-                return re.split(r'_\d+$', ver)[0]
-            return ""
-        except (subprocess.CalledProcessError, OSError):
+            return out.splitlines()[0] if out else ""
+        except (subprocess.SubprocessError, OSError):
             return ""
 
     def get_remote_version(self) -> str:
-        try:
-            out = subprocess.check_output(
-                ["brew", "info", "--json", "colmap"],
-                text=True, stderr=subprocess.DEVNULL, timeout=10
-            )
-            data = json.loads(out)
-            if data and isinstance(data, list):
-                return data[0].get("versions", {}).get("stable", "")
-        except Exception as e:
-            print(f"⚠️ Could not fetch latest COLMAP version: {e}")
-        return ""
+        return ""  # No auto-update for the manually installed CUDA build
 
     def install(self):
-        if not shutil.which("brew"):
-            print("❌ Homebrew requis pour mettre à jour COLMAP.")
+        if self.is_installed():
             return
-        try:
-            if self.is_installed():
-                print("Mise à jour de COLMAP via Homebrew...")
-                subprocess.check_call(["brew", "upgrade", "colmap"])
-            else:
-                print("Installation de COLMAP via Homebrew...")
-                subprocess.check_call(["brew", "install", "colmap"])
-        except subprocess.CalledProcessError:
-            print("⚠️ brew upgrade/install colmap a échoué (peut-être déjà à jour).")
+        print("❌ COLMAP introuvable.")
+        print("   Téléchargez la build CUDA : https://github.com/colmap/colmap/releases")
+        print("   (colmap-x64-windows-cuda.zip), extrayez-la et ajoutez le dossier")
+        print("   contenant COLMAP.bat à votre PATH, puis relancez.")
 
 
 class GlomapEngineDep(EngineDependency):
@@ -75,64 +58,56 @@ class GlomapEngineDep(EngineDependency):
 
     def __init__(self):
         super().__init__("glomap", GLOMAP_REPO)
-        # Fix: source code is in a separate dir, not replacing the binary
+        # Source code lives in a separate dir, not replacing the binary
         self.target_dir = self.engines_dir / "glomap-source"
 
     def is_enabled_in_config(self, config: dict) -> bool:
         return config.get("params", {}).get("use_glomap", False)
 
+    def is_installed(self) -> bool:
+        from app.core.system import resolve_binary
+        return resolve_binary("glomap") is not None
+
     def install(self):
-        if sys.platform == "darwin" and not check_xcode_tools():
-            print("Xcode Command Line Tools required.")
-            return
-        
         if not check_cmake_ninja():
-            if not install_build_tools(): return
-            
+            if not install_build_tools():
+                print("⚠️ CMake/Ninja requis pour compiler Glomap. Installez-les et relancez.")
+                return
+
         self.update_git()
-        # Source dir is now handled by update_git via self.target_dir
         source_dir = self.target_dir
 
         build_dir = source_dir / "build"
-        # Fix CMakeCache error by cleaning build dir if it exists
         if build_dir.exists():
             shutil.rmtree(str(build_dir))
         build_dir.mkdir(exist_ok=True)
-        
-        cmake_args = ["cmake", "..", "-GNinja", "-DCMAKE_BUILD_TYPE=Release"]
+
+        # GLOMAP fetches/builds its own COLMAP. On Windows we let CMake pick the
+        # default (MSVC) generator; CUDA is auto-detected by COLMAP's CMake.
+        cmake_args = ["cmake", "..", "-DCMAKE_BUILD_TYPE=Release", "-DFETCH_COLMAP=ON"]
         env = os.environ.copy()
 
-        if sys.platform == "darwin":
-            # GLOMAP builds its own COLMAP via FETCH_COLMAP.  The Homebrew COLMAP
-            # CMake config does not export the colmap::colmap target, and the
-            # SQLite crash that originally motivated -DFETCH_COLMAP=OFF is now
-            # handled by _convert_db_journal_mode() in the pipeline.
-            cmake_args = ["cmake", "..", "-GNinja", "-DCMAKE_BUILD_TYPE=Release", "-DFETCH_COLMAP=ON"]
+        try:
+            subprocess.check_call(cmake_args, cwd=str(build_dir), env=env)
+            subprocess.check_call(
+                ["cmake", "--build", ".", "--config", "Release"],
+                cwd=str(build_dir), env=env,
+            )
+        except (subprocess.CalledProcessError, OSError) as e:
+            print(f"⚠️ Glomap build failed: {e}")
+            return
 
-            try:
-                libomp = subprocess.check_output(["brew", "--prefix", "libomp"], text=True).strip()
-                include_p = f"{libomp}/include"
-                lib_p = f"{libomp}/lib"
-                cmake_args.extend([
-                    f"-DOpenMP_ROOT={libomp}",
-                    "-DOpenMP_C_FLAGS=-Xpreprocessor -fopenmp",
-                    "-DOpenMP_CXX_FLAGS=-Xpreprocessor -fopenmp"
-                ])
-                env["LDFLAGS"] = f"-L{lib_p} -lomp"
-                env["CPPFLAGS"] = f"-I{include_p} -Xpreprocessor -fopenmp"
-            except (subprocess.CalledProcessError, OSError) as e:
-                print(f"⚠️ Could not detect libomp via brew: {e}")
-
-        subprocess.check_call(cmake_args, cwd=str(build_dir), env=env)
-        subprocess.check_call(["ninja"], cwd=str(build_dir), env=env)
-        
-        # Binary name is glomap
+        # Locate the built binary (glomap.exe on Windows)
         built_bin = None
-        for p in [build_dir / "glomap" / "glomap", build_dir / "glomap"]:
-            if p.exists() and not p.is_dir():
-                built_bin = p
+        for pattern in ("glomap.exe", "glomap"):
+            for found in build_dir.rglob(pattern):
+                if found.is_file():
+                    built_bin = found
+                    break
+            if built_bin:
                 break
-        
+
         if built_bin:
-            shutil.copy2(str(built_bin), str(self.engines_dir / "glomap"))
+            dest = self.engines_dir / ("glomap.exe" if built_bin.suffix == ".exe" else "glomap")
+            shutil.copy2(str(built_bin), str(dest))
             self.save_local_version(self.get_remote_version())

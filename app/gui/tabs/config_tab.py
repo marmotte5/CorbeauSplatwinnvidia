@@ -166,7 +166,6 @@ class ConfigTab(QWidget):
         
         self.combo_mode = QComboBox()
         self.combo_mode.addItem(tr("mode_gsplat"), "gsplat")
-        self.combo_mode.addItem(tr("mode_sharp"), "sharp")
         self.combo_mode.addItem(tr("mode_360"), "360")
         self.combo_mode.addItem(tr("mode_4dgs"), "4dgs")
         mode_layout.addWidget(self.combo_mode)
@@ -233,15 +232,7 @@ class ConfigTab(QWidget):
         self.fps_spin.setValue(5)
         fps_layout.addWidget(self.label_fps)
         fps_layout.addWidget(self.fps_spin)
-        
-        self.lbl_sharp_skip = QLabel(tr("sharp_lbl_frame_skip"))
-        self.spin_sharp_skip = QSpinBox()
-        self.spin_sharp_skip.setMinimum(1)
-        self.spin_sharp_skip.setMaximum(100)
-        self.spin_sharp_skip.setValue(1)
-        fps_layout.addWidget(self.lbl_sharp_skip)
-        fps_layout.addWidget(self.spin_sharp_skip)
-        
+
         fps_layout.addStretch()
         input_layout.addLayout(fps_layout)
         
@@ -380,42 +371,29 @@ class ConfigTab(QWidget):
         """Met à jour la visibilité selon le mode d'entraînement"""
         mode = self.get_training_mode()
         is_gsplat = (mode == "gsplat")
-        is_sharp = (mode == "sharp")
-        
-        self.lbl_type.setVisible(is_gsplat or is_sharp)
-        self.radio_images.setVisible(is_gsplat or is_sharp)
-        self.radio_video.setVisible(is_gsplat or is_sharp)
-        
-        is_video = ((is_gsplat or is_sharp) and self.radio_video.isChecked()) or (mode in ["360", "4dgs"])
-        is_regular_video = is_video and not is_sharp
-        is_sharp_video = is_sharp and self.radio_video.isChecked()
-        
-        # FPS input is visible only if we can give video sources in theory
-        self.fps_spin.setVisible(is_regular_video)
-        self.label_fps.setVisible(is_regular_video)
-        
-        if hasattr(self, 'lbl_sharp_skip'):
-            self.lbl_sharp_skip.setVisible(is_sharp_video)
-            self.spin_sharp_skip.setVisible(is_sharp_video)
 
-        # Source selection type visibility (Gsplat and Sharp only)
-        show_source_select = (mode in ["gsplat", "sharp"])
+        self.lbl_type.setVisible(is_gsplat)
+        self.radio_images.setVisible(is_gsplat)
+        self.radio_video.setVisible(is_gsplat)
+
+        is_video = (is_gsplat and self.radio_video.isChecked()) or (mode in ["360", "4dgs"])
+
+        # FPS input is visible only if we can give video sources in theory
+        self.fps_spin.setVisible(is_video)
+        self.label_fps.setVisible(is_video)
+
+        # Source selection type visibility (Gsplat only)
+        show_source_select = (mode == "gsplat")
         self.lbl_source_select.setVisible(show_source_select)
         self.radio_source_folder.setVisible(show_source_select)
         self.radio_source_files.setVisible(show_source_select)
-        
-        if is_sharp_video:
-            self.radio_source_folder.setEnabled(False)
-            if self.radio_source_folder.isChecked():
-                self.radio_source_files.setChecked(True)
-        else:
-            self.radio_source_folder.setEnabled(True)
-        
+        self.radio_source_folder.setEnabled(True)
+
         # Undistort check makes sense for gsplat
         self.undistort_check.setVisible(mode == "gsplat")
-        
-        # Upscale check for gsplat, sharp, 360
-        self.chk_upscale.setVisible(mode in ["gsplat", "sharp", "360"])
+
+        # Upscale check for gsplat, 360
+        self.chk_upscale.setVisible(mode in ["gsplat", "360"])
 
     def browse_input(self):
         """Parcourir l'entrée en fonction du mode sélectionné"""
@@ -435,21 +413,6 @@ class ConfigTab(QWidget):
                 )
                 if paths:
                     self.input_path.setText("|".join(paths))
-
-        elif mode == "sharp":
-            # Uses the radio button choice instead of popup
-            if self.radio_source_folder.isChecked():
-                path = get_existing_directory(self, tr("group_input"))
-                if path:
-                    self.input_path.setText(path)
-            else:
-                filters = "Images (*.jpg *.jpeg *.png);;Tous (*.*)" if self.radio_images.isChecked() else "Vidéos (*.mp4 *.mov *.avi *.mkv *.MP4 *.MOV);;Tous (*.*)"
-                paths, _ = get_open_file_names(
-                    self, tr("group_input"),
-                    "", filters
-                )
-                if paths:
-                    self.input_path.setText(paths[0]) # Enforce single image/video for sharp if not folder
 
         elif mode == "360":
             # Exactly one video
@@ -516,7 +479,7 @@ class ConfigTab(QWidget):
     def get_input_type(self):
         """Returns 'video' or 'images' based on mode and radio buttons"""
         mode = self.get_training_mode()
-        if mode in ["gsplat", "sharp"]:
+        if mode == "gsplat":
             return "video" if self.radio_video.isChecked() else "images"
         elif mode in ["360", "4dgs"]:
             return "video"
@@ -614,18 +577,15 @@ class ConfigTab(QWidget):
         self.lbl_proj_name.setText(tr("label_project_name"))
         self.lbl_mode.setText(tr("label_training_mode"))
         self.combo_mode.setItemText(0, tr("mode_gsplat"))
-        self.combo_mode.setItemText(1, tr("mode_sharp"))
-        self.combo_mode.setItemText(2, tr("mode_360"))
-        self.combo_mode.setItemText(3, tr("mode_4dgs"))
+        self.combo_mode.setItemText(1, tr("mode_360"))
+        self.combo_mode.setItemText(2, tr("mode_4dgs"))
         self.lbl_type.setText(tr("label_type"))
         self.radio_images.setText(tr("radio_images"))
         self.radio_video.setText(tr("radio_video"))
         self.lbl_path.setText(tr("label_path"))
         self.btn_browse_input.setText(tr("btn_browse"))
         self.label_fps.setText(tr("label_fps"))
-        if hasattr(self, 'lbl_sharp_skip'):
-            self.lbl_sharp_skip.setText(tr("sharp_lbl_frame_skip"))
-        
+
         self.output_group.setTitle(tr("group_output"))
         self.lbl_out_path.setText(tr("label_out_path"))
         self.btn_browse_output.setText(tr("btn_browse"))

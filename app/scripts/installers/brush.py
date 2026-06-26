@@ -151,7 +151,10 @@ class BrushEngineDep(EngineDependency):
             return False
 
         checksums = load_expected_checksums()
-        checksum_key = "darwin_brush" if system == "Darwin" else "linux_brush"
+        checksum_key = {
+            "Windows": "windows_brush",
+            "Darwin": "darwin_brush",
+        }.get(system, "linux_brush")
         if not verify_download(archive_path, checksums.get(checksum_key, "")):
             print(f"⚠️ Brush archive SHA256 mismatch (checksum key: {checksum_key}). Continuing anyway.")
 
