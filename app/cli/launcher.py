@@ -5,8 +5,9 @@ from pathlib import Path as _Path
 
 
 def _launch_gui():
-    from PyQt6.QtWidgets import QApplication
     from PyQt6.QtGui import QIcon
+    from PyQt6.QtWidgets import QApplication
+
     from app.gui.main_window import ColmapGUI
 
     app = QApplication(sys.argv)

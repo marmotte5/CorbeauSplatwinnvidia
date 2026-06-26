@@ -1,13 +1,11 @@
 """Utility functions for dependency management — installers, checkers, helpers (Windows)."""
+import json
 import os
-import sys
 import shutil
 import subprocess
-import json
 from pathlib import Path
 
 from app.scripts.checksum_verifier import load_expected_checksums, verify_download
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Config and requirements helpers
@@ -25,7 +23,7 @@ def load_config():
 
 def relax_requirements(src, dst):
     """Refactor utils: Relax strict torch deps"""
-    with open(src, 'r') as f_in, open(dst, 'w') as f_out:
+    with open(src) as f_in, open(dst, 'w') as f_out:
         for line in f_in:
             if line.strip().startswith('torch==') or line.strip().startswith('torchvision=='):
                 line = line.replace('==', '>=')
@@ -119,8 +117,8 @@ def install_build_tools():
 
 def install_rust_toolchain():
     print("Installing Rust (cargo) via rustup-init.exe...")
-    import urllib.request
     import tempfile
+    import urllib.request
     try:
         rustup_path = Path(tempfile.mkstemp(suffix=".exe")[1])
         req = urllib.request.Request("https://win.rustup.rs/x86_64")

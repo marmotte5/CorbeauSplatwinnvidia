@@ -1,7 +1,6 @@
-import platform
 import os
+import platform
 import shutil
-import subprocess
 from pathlib import Path
 
 # Common install locations for COLMAP on Windows. The official pre-built

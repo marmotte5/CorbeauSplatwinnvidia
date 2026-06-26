@@ -2,11 +2,9 @@
 import os
 import shutil
 import subprocess
-from pathlib import Path
 
 from app.scripts.installers.base import EngineDependency
 from app.scripts.installers.tools import check_cmake_ninja, install_build_tools
-
 
 GLOMAP_REPO = "https://github.com/colmap/glomap.git"
 
