@@ -72,6 +72,8 @@ def get_parser():
     p.add_argument("--filter_blur", action="store_true", help="Écarter les images floues avant COLMAP")
     p.add_argument("--blur_strength", choices=["light", "medium", "strong"], default="medium",
                    help="Sévérité du filtre de flou (défaut: medium)")
+    p.add_argument("--robust", action="store_true",
+                   help="Mode robuste grandes scènes (PINHOLE, anti-crash BA, filtre flou)")
 
     # ── colmap ────────────────────────────────────────────────────────────────
     p = subs.add_parser("colmap", help="Pipeline COLMAP (vidéo/images → dataset)")
@@ -109,6 +111,8 @@ def get_parser():
     p.add_argument("--filter_blur", action="store_true", help="Écarter les images floues avant COLMAP")
     p.add_argument("--blur_strength", choices=["light", "medium", "strong"], default="medium",
                    help="Sévérité du filtre de flou (défaut: medium)")
+    p.add_argument("--robust", action="store_true",
+                   help="Mode robuste grandes scènes (PINHOLE, anti-crash BA, filtre flou)")
 
     # ── brush ─────────────────────────────────────────────────────────────────
     p = subs.add_parser("brush", help="Entraînement Gaussian Splat (Brush)")

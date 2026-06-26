@@ -161,6 +161,15 @@ class ColmapGUI(QMainWindow):
         params.undistort_images = self.config_tab.get_undistort()
         params.filter_blurry = self.config_tab.get_blur_filter()
         params.blur_factor = self.config_tab.get_blur_factor()
+
+        # Robust mode: stabilise COLMAP's bundle adjustment on large scenes to
+        # avoid "Linear solver failure" crashes. Uses only known COLMAP options.
+        if self.config_tab.get_robust_mode():
+            params.camera_model = "PINHOLE"
+            params.ba_refine_extra_params = False
+            params.ba_refine_principal_point = False
+            params.multiple_models = True
+            params.filter_blurry = True
         return params
 
     def get_upscale_config(self):

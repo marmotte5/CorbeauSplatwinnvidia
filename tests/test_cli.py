@@ -1,7 +1,6 @@
 """Tests pour app.cli — CLI dispatch et parsing argparse."""
 import sys
-from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock, call, PropertyMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -213,21 +212,19 @@ class TestCLIDispatch:
 
     def test_main_no_args_launches_gui(self):
         """main() sans argument → _launch_gui() est appelé."""
-        with patch("app.cli._launch_gui") as mock_gui:
-            with patch("app.cli.check_dependencies", return_value=[]):
-                with patch.object(sys, "argv", ["main.py"]):
-                    from app.cli import main
-                    main()
-                    mock_gui.assert_called_once()
+        with patch("app.cli._launch_gui") as mock_gui, patch("app.cli.check_dependencies", return_value=[]):
+            with patch.object(sys, "argv", ["main.py"]):
+                from app.cli import main
+                main()
+                mock_gui.assert_called_once()
 
     def test_main_gui_flag(self):
         """main() avec --gui → _launch_gui() est appelé."""
-        with patch("app.cli._launch_gui") as mock_gui:
-            with patch("app.cli.check_dependencies", return_value=[]):
-                with patch.object(sys, "argv", ["main.py", "--gui"]):
-                    from app.cli import main
-                    main()
-                    mock_gui.assert_called_once()
+        with patch("app.cli._launch_gui") as mock_gui, patch("app.cli.check_dependencies", return_value=[]):
+            with patch.object(sys, "argv", ["main.py", "--gui"]):
+                from app.cli import main
+                main()
+                mock_gui.assert_called_once()
 
     def test_main_pipeline_dispatch(self):
         """main() avec pipeline → run_pipeline est appelé."""
@@ -417,3 +414,22 @@ class TestPipelineRun:
 
         mock_colmap.run.assert_called_once()
         mock_brush.train.assert_called_once()
+
+
+class TestRobustMode:
+    """Tests pour le mode robuste (anti-crash COLMAP)."""
+
+    def test_apply_robust_sets_stable_params(self):
+        from app.cli.commands import _apply_robust
+        from app.core.params import ColmapParams
+        p = _apply_robust(ColmapParams(camera_model="SIMPLE_RADIAL"))
+        assert p.camera_model == "PINHOLE"
+        assert p.ba_refine_extra_params is False
+        assert p.ba_refine_principal_point is False
+        assert p.multiple_models is True
+        assert p.filter_blurry is True
+
+    def test_robust_flag_parses(self):
+        from app.cli.parser import get_parser
+        args = get_parser().parse_args(["colmap", "-i", "x", "-o", "y", "--robust"])
+        assert args.robust is True

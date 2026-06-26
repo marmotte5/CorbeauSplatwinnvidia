@@ -34,6 +34,16 @@ BRUSH_DEFAULTS = {
 _BLUR_FACTORS = {"light": 0.5, "medium": 0.7, "strong": 0.85}
 
 
+def _apply_robust(params):
+    """Stabilise COLMAP bundle adjustment on large scenes (anti-crash)."""
+    params.camera_model = "PINHOLE"
+    params.ba_refine_extra_params = False
+    params.ba_refine_principal_point = False
+    params.multiple_models = True
+    params.filter_blurry = True
+    return params
+
+
 BRUSH_PRESETS = {
     "fast": {
         "total_steps": 7000, "refine_every": 100,
@@ -80,6 +90,8 @@ def run_colmap(args):
         filter_blurry=args.filter_blur,
         blur_factor=_BLUR_FACTORS.get(args.blur_strength, 0.7),
     )
+    if getattr(args, "robust", False):
+        _apply_robust(params)
 
     print(tr("cli_start_colmap"))
     print(tr("cli_input", args.input))
@@ -356,6 +368,8 @@ def run_pipeline(args):
         filter_blurry=args.filter_blur,
         blur_factor=_BLUR_FACTORS.get(args.blur_strength, 0.7),
     )
+    if getattr(args, "robust", False):
+        _apply_robust(colmap_params)
 
     colmap_engine = ColmapEngine(
         colmap_params, args.input, args.output, args.type, args.fps,

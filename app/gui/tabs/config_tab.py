@@ -316,6 +316,20 @@ class ConfigTab(QWidget):
         self.chk_blur_filter.toggled.connect(self.combo_blur_strength.setEnabled)
         self.combo_blur_strength.setEnabled(False)
 
+        # Robust mode for large scenes — stabilises COLMAP's bundle adjustment
+        # (PINHOLE camera, no extra-param/principal-point refinement, multiple
+        # models allowed) and forces blur filtering on.
+        self.chk_robust = QCheckBox(tr("robust_check", "Mode robuste (grandes scènes / anti-crash COLMAP)"))
+        self.chk_robust.setChecked(False)
+        self.chk_robust.setToolTip(tr(
+            "robust_tooltip",
+            "Pour les grosses scènes (milliers d'images) : évite les plantages de "
+            "bundle adjustment (caméra PINHOLE, pas de raffinement distorsion, "
+            "modèles multiples) et active le filtrage des images floues."
+        ))
+        self.chk_robust.toggled.connect(self._on_robust_toggled)
+        options_layout.addWidget(self.chk_robust)
+
         options_layout.addStretch()
         self.options_group.setLayout(options_layout)
         layout.addWidget(self.options_group)
@@ -431,6 +445,9 @@ class ConfigTab(QWidget):
         self.chk_blur_filter.setVisible(blur_visible)
         self.combo_blur_strength.setVisible(blur_visible)
 
+        # Robust COLMAP mode is relevant to the gsplat pipeline
+        self.chk_robust.setVisible(mode == "gsplat")
+
     def browse_input(self):
         """Parcourir l'entrée en fonction du mode sélectionné"""
         mode = self.get_training_mode()
@@ -539,6 +556,14 @@ class ConfigTab(QWidget):
         if idx >= 0:
             self.combo_blur_strength.setCurrentIndex(idx)
 
+    def get_robust_mode(self): return self.chk_robust.isChecked()
+    def set_robust_mode(self, val): self.chk_robust.setChecked(bool(val))
+
+    def _on_robust_toggled(self, checked):
+        """Robust mode also turns on blur filtering (so blurry frames aren't used)."""
+        if checked and not self.chk_blur_filter.isChecked():
+            self.chk_blur_filter.setChecked(True)
+
 
 
     def set_processing_state(self, processing=True):
@@ -587,6 +612,7 @@ class ConfigTab(QWidget):
             "upscale": self.get_upscale(),
             "blur_filter": self.get_blur_filter(),
             "blur_factor": self.get_blur_factor(),
+            "robust_mode": self.get_robust_mode(),
             "lang": self.combo_lang.currentData()
         }
 
@@ -604,6 +630,7 @@ class ConfigTab(QWidget):
         if "upscale" in state: self.set_upscale(state["upscale"])
         if "blur_filter" in state: self.set_blur_filter(state["blur_filter"])
         if "blur_factor" in state: self.set_blur_factor(state["blur_factor"])
+        if "robust_mode" in state: self.set_robust_mode(state["robust_mode"])
 
         # Lang is special, might require restart if changed, so we just set combo if it matches
         # or we let the main app handle valid lang loading.
@@ -647,6 +674,7 @@ class ConfigTab(QWidget):
         self.combo_blur_strength.setItemText(0, tr("blur_light", "Léger"))
         self.combo_blur_strength.setItemText(1, tr("blur_medium", "Moyen"))
         self.combo_blur_strength.setItemText(2, tr("blur_strong", "Fort"))
+        self.chk_robust.setText(tr("robust_check", "Mode robuste (grandes scènes / anti-crash COLMAP)"))
 
         self.btn_process.setText(tr("btn_process") if self.btn_process.isEnabled() else tr("btn_stop"))
         self.btn_stop.setText(tr("btn_stop"))
