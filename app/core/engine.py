@@ -346,18 +346,39 @@ class ColmapEngine(BaseEngine):
                                 break
                             counter += 1
 
-                    shutil.copy2(file_path, target_path)
+                    mode = self._link_or_copy(file_path, target_path)
+                    if i == 0:
+                        self.log(
+                            "Images liées (hardlink — pas de duplication sur le disque)."
+                            if mode == "link" else
+                            "Images copiées (entrée sur un autre volume — duplication inévitable)."
+                        )
 
                     if i % 10 == 0 or i == total_files - 1:
                         p = 5 + int((i / total_files) * 15)
                         self.progress(p)
-                        self.status(f"Copie des images : {i+1} / {total_files}")
+                        self.status(f"Préparation des images : {i+1} / {total_files}")
 
-                self.log(f"✅ {total_files} images copiées vers {images_dir}")
+                self.log(f"✅ {total_files} images préparées dans {images_dir}")
                 return True
             except Exception as e:
                 self.log(f"Erreur copie images: {e}")
                 return False
+
+    def _link_or_copy(self, src: Path, dst: Path) -> str:
+        """Hardlink src→dst to avoid duplicating the dataset on disk; fall back to
+        a copy when a hardlink can't be made (e.g. source on another volume).
+
+        Hardlinks share the same data on disk, so the project's images/ folder
+        costs no extra space. In-place writers (resolution resize) break the
+        link first, so the user's originals are never modified.
+        """
+        try:
+            os.link(str(src), str(dst))
+            return "link"
+        except (OSError, NotImplementedError):
+            shutil.copy2(str(src), str(dst))
+            return "copy"
 
     def _convert_db_journal_mode(self, database_path: Path):
         """Switch the COLMAP database from WAL to DELETE journal mode.
@@ -618,6 +639,9 @@ class ColmapEngine(BaseEngine):
                 self.log(f"⚠️ Re-lecture impossible: {f.name}")
                 continue
             resized = cv2.resize(img, (min_w, min_h), interpolation=cv2.INTER_AREA)
+            # Break any hardlink first so we write a fresh file and never modify
+            # the user's original image (which may share this inode).
+            f.unlink(missing_ok=True)
             cv2.imwrite(str(f), resized)
             del img, resized
             if (i + 1) % 10 == 0 or (i + 1) == len(to_resize):
