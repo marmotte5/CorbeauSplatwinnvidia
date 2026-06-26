@@ -357,47 +357,80 @@ class ColmapEngine(BaseEngine):
             upscaler = UpscaleEngine(logger_callback=self.log)
 
             if not upscaler.is_installed():
-                self.log("WARNING: upscayl-bin not found. Upscale skipped.")
+                self.log("⚠️ upscayl-bin introuvable — upscale ignoré (les images originales sont conservées).")
+                return True
+
+            # Verify a model is actually available BEFORE touching the images.
+            # Upscale is an optional enhancement; a missing model must never
+            # abort dataset creation.
+            from app.upscayl_manager import get_models_dir
+            from app.upscayl_models import get_downloaded_models
+            downloaded = {m.id for m in get_downloaded_models(get_models_dir())}
+            model_id = self.upscale_config.get("model_id")
+            if model_id not in downloaded:
+                model_id = _first_available_model()  # first downloaded model, or ""
+            if not model_id:
+                self.log(
+                    "⚠️ Aucun modèle upscayl téléchargé — upscale ignoré. "
+                    "Ouvrez l'onglet Upscale pour télécharger un modèle "
+                    "(l'upscale est optionnel et non requis pour le splatting)."
+                )
                 return True
 
             images_sources_dir = project_dir / "images_src"
-
-            if not images_sources_dir.exists():
-                self.log(f"Moving originals to {images_sources_dir}...")
-                shutil.move(str(images_dir), str(images_sources_dir))
-                images_dir.mkdir(parents=True, exist_ok=True)
-
-                model_id    = self.upscale_config.get("model_id") or _first_available_model()
-                scale       = self.upscale_config.get("scale", 4)
-                out_format  = self.upscale_config.get("format", "png")
-                tile        = self.upscale_config.get("tile", 0)
-                tta         = self.upscale_config.get("tta", False)
-                compression = self.upscale_config.get("compression", 0)
-
-                self.log(f"Upscaling x{scale} with model '{model_id}'...")
-                success, msg = upscaler.upscale_folder(
-                    input_dir=str(images_sources_dir),
-                    output_dir=str(images_dir),
-                    model_id=model_id,
-                    scale=scale,
-                    output_format=out_format,
-                    tile=tile,
-                    tta=tta,
-                    compression=compression,
-                    cancel_check=self.is_cancelled,
-                )
-                if not success:
-                    self.log(f"Upscale failed: {msg}")
-                    return False
-                self.log("Upscale complete.")
-            else:
+            if images_sources_dir.exists():
                 self.log("'images_src' already exists — upscale already done.")
+                return True
 
+            self.log(f"Moving originals to {images_sources_dir}...")
+            shutil.move(str(images_dir), str(images_sources_dir))
+            images_dir.mkdir(parents=True, exist_ok=True)
+
+            scale       = self.upscale_config.get("scale", 4)
+            out_format  = self.upscale_config.get("format", "png")
+            tile        = self.upscale_config.get("tile", 0)
+            tta         = self.upscale_config.get("tta", False)
+            compression = self.upscale_config.get("compression", 0)
+
+            self.log(f"Upscaling x{scale} with model '{model_id}'...")
+            success, msg = upscaler.upscale_folder(
+                input_dir=str(images_sources_dir),
+                output_dir=str(images_dir),
+                model_id=model_id,
+                scale=scale,
+                output_format=out_format,
+                tile=tile,
+                tta=tta,
+                compression=compression,
+                cancel_check=self.is_cancelled,
+            )
+            if not success:
+                self.log(f"⚠️ Upscale échoué ({msg}) — restauration des images originales.")
+                self._restore_originals(images_sources_dir, images_dir)
+                return True
+            self.log("Upscale complete.")
             return True
 
         except Exception as e:
-            self.log(f"Erreur Upscale: {e}")
-            return False
+            self.log(f"⚠️ Erreur Upscale ({e}) — tentative de restauration des images originales.")
+            try:
+                src = project_dir / "images_src"
+                if src.exists() and not any(images_dir.iterdir()):
+                    self._restore_originals(src, images_dir)
+            except OSError:
+                pass
+            return True  # optional step: never abort the pipeline
+
+    def _restore_originals(self, src_dir: Path, images_dir: Path) -> None:
+        """Move original images back from src_dir to images_dir after a failed upscale."""
+        images_dir.mkdir(parents=True, exist_ok=True)
+        for f in src_dir.iterdir():
+            if f.is_file():
+                dest = images_dir / f.name
+                if not dest.exists():
+                    shutil.move(str(f), str(dest))
+        shutil.rmtree(str(src_dir), ignore_errors=True)
+        self.log("Images originales restaurées — la reconstruction continue sans upscale.")
 
     def _check_and_normalize_resolution(self, images_dir: Path) -> bool:
         """Vérifie et normalise la résolution des images."""
