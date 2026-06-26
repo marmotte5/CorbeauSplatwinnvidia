@@ -3,18 +3,31 @@ from pathlib import Path
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QGroupBox,
-    QFormLayout, QCheckBox, QComboBox, QSpinBox, QMessageBox,
-    QProgressDialog, QApplication, QScrollArea, QFrame, QSlider,
-    QFileDialog, QSizePolicy,
+    QCheckBox,
+    QComboBox,
+    QFileDialog,
+    QFormLayout,
+    QFrame,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QScrollArea,
+    QSlider,
+    QSpinBox,
+    QVBoxLayout,
+    QWidget,
 )
 
-from app.core.i18n import tr, add_language_observer
+from app.core.i18n import add_language_observer, tr
 from app.gui.widgets.drop_line_edit import DropLineEdit
 from app.gui.widgets.upscale_widgets import (
-    BinaryInstallWorker, ModelDownloadWorker, TestWorker, ModelCard,
+    BinaryInstallWorker,
+    ModelCard,
+    ModelDownloadWorker,
+    TestWorker,
 )
-
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Main tab

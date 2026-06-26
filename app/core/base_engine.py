@@ -63,12 +63,22 @@ class SubprocessRunner(IProcessRunner):
         try:
             if sys.platform != "win32":
                 os.killpg(os.getpgid(self._process.pid), signal.SIGTERM)
+                self._process.wait(timeout=5)
             else:
-                self._process.terminate()
-            self._process.wait(timeout=5)
+                # On Windows a `cmd /c npx ...` wrapper spawns child node/colmap
+                # processes that process.terminate() does NOT kill, leaving them
+                # orphaned (e.g. holding the SuperSplat port). Kill the whole tree.
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(self._process.pid)],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                )
+                self._process.wait(timeout=5)
         except (ProcessLookupError, PermissionError, OSError, subprocess.TimeoutExpired):
-            self._process.kill()
-            self._process.wait()
+            try:
+                self._process.kill()
+                self._process.wait(timeout=5)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
 
     def stdout_iter(self) -> Iterator[str]:
         if getattr(self._process, 'stdout', None):

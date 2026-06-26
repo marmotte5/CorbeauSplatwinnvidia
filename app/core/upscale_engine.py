@@ -3,9 +3,10 @@ upscale_engine.py — Thin wrapper around the upscayl-bin CLI.
 
 No Python venv required. upscayl-bin is a standalone NCNN-based binary.
 """
-import tempfile
 import shutil
+import tempfile
 from pathlib import Path
+
 from .base_engine import BaseEngine
 
 
@@ -38,9 +39,10 @@ class UpscaleEngine(BaseEngine):
             return None
         # If the selected model is a fixed‑scale model (e.g., contains "x4"),
         # and the user requested a different scale, try to pick a matching model.
-        # This simple heuristic replaces the trailing "x4" with the desired scale.
+        # This simple heuristic replaces the "x4" token with "x{scale}" — e.g.
+        # realesrgan-x4plus → realesrgan-x2plus (NOT realesrgan-2plus).
         if scale != 4 and "x4" in model_id:
-            candidate = model_id.replace("x4", str(scale))
+            candidate = model_id.replace("x4", f"x{scale}")
             # The actual model may not exist; we keep the original if the candidate
             # is not found later by upscayl-bin, but we prefer the adjusted one.
             model_id = candidate

@@ -45,6 +45,7 @@ class SessionManager:
             "extractor_360_params": self.mw.extractor_360_tab,
             "four_dgs_params": self.mw.four_dgs_tab,
             "superplat_params": self.mw.superplat_tab,
+            "cleaner_params": self.mw.cleaner_tab,
         }
 
         for key, tab in tab_mapping.items():

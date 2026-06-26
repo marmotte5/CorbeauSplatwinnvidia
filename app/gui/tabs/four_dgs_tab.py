@@ -1,16 +1,29 @@
 
-from pathlib import Path
-import sys
 import subprocess
-from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QGroupBox,
-    QFormLayout, QCheckBox, QSpinBox, QMessageBox, QTextEdit, QApplication, QProgressDialog
-)
+import sys
+from pathlib import Path
+
 from PyQt6.QtCore import Qt
-from app.core.i18n import tr, add_language_observer
+from PyQt6.QtWidgets import (
+    QApplication,
+    QCheckBox,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QMessageBox,
+    QProgressDialog,
+    QPushButton,
+    QSpinBox,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
+
+from app.core.i18n import add_language_observer, tr
 from app.core.system import resolve_project_root
-from app.gui.widgets.drop_line_edit import DropLineEdit
 from app.gui.widgets.dialog_utils import get_existing_directory
+from app.gui.widgets.drop_line_edit import DropLineEdit
 from app.gui.workers import FourDGSWorker
 
 
@@ -47,7 +60,7 @@ class FourDGSTab(QWidget):
         self.lbl_header = QLabel(tr("four_dgs_header"))
         self.lbl_header.setStyleSheet("font-weight: bold; font-size: 14px; margin-bottom: 5px;")
         layout.addWidget(self.lbl_header)
-        
+
         self.lbl_desc = QLabel(tr("four_dgs_desc"))
         self.lbl_desc.setWordWrap(True)
         self.lbl_desc.setStyleSheet("color: #aaa; margin-bottom: 10px;")
@@ -101,20 +114,20 @@ class FourDGSTab(QWidget):
         self.btn_run.setStyleSheet("background-color: #2ecc71; color: white; font-weight: bold;")
         self.btn_run.clicked.connect(self.run_process)
         btn_layout.addWidget(self.btn_run)
-        
+
         self.btn_stop = QPushButton(tr("four_dgs_btn_stop"))
         self.btn_stop.setFixedHeight(40)
         self.btn_stop.setStyleSheet("background-color: #e74c3c; color: white; font-weight: bold;")
         self.btn_stop.clicked.connect(self.stop_process)
         self.btn_stop.setEnabled(False)
         btn_layout.addWidget(self.btn_stop)
-        
+
         self.btn_colmap = QPushButton(tr("four_dgs_btn_colmap"))
         self.btn_colmap.setFixedHeight(40)
         self.btn_colmap.setStyleSheet("background-color: #3498db; color: white; font-weight: bold;")
         self.btn_colmap.clicked.connect(self.run_colmap_only)
         btn_layout.addWidget(self.btn_colmap)
-        
+
         layout.addLayout(btn_layout)
 
         # Logs
@@ -126,7 +139,7 @@ class FourDGSTab(QWidget):
         # Initial State
         self.controls_group.setEnabled(False)
         self.btn_run.setEnabled(False)
-        
+
         # Check if already active/installed (Check ns-process-data in dedicated venv)
         ns_path = _get_venv_4dgs_ns_path()
         if ns_path.exists():
@@ -140,12 +153,12 @@ class FourDGSTab(QWidget):
             ns_path = _get_venv_4dgs_ns_path()
             if not ns_path.exists():
                 reply = QMessageBox.question(
-                    self, 
-                    "Installation Requise", 
+                    self,
+                    "Installation Requise",
                     tr("msg_install_nerf"),
                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
                 )
-                
+
                 if reply == QMessageBox.StandardButton.Yes:
                     self.install_dependencies()
                 else:
@@ -160,18 +173,18 @@ class FourDGSTab(QWidget):
     def install_dependencies(self):
         """Install nerfstudio in a dedicated venv (.venv_4dgs)."""
         venv_python = _get_venv_4dgs_python()
-        
+
         progress = QProgressDialog("Installation de Nerfstudio (venv dédié)...", "Annuler", 0, 0, self)
         progress.setWindowModality(Qt.WindowModality.WindowModal)
         progress.show()
         QApplication.processEvents()
-        
+
         try:
             # Create venv if it doesn't exist
             if not venv_python.exists():
                 self._log_to_view("Création du venv .venv_4dgs...")
                 subprocess.check_call([sys.executable, "-m", "venv", str(venv_python.parent.parent)])
-            
+
             # Upgrade pip first
             self._log_to_view("Mise à jour de pip...")
             subprocess.check_call([str(venv_python), "-m", "pip", "install", "--upgrade", "pip"])
@@ -185,7 +198,7 @@ class FourDGSTab(QWidget):
             cmd = [str(venv_python), "-m", "pip", "install", "nerfstudio"]
             self._log_to_view(f"Exécution: {' '.join(cmd)}")
             subprocess.check_call(cmd)
-            
+
             QMessageBox.information(self, tr("msg_success"), tr("four_dgs_install_ok", "Installation terminée. Veuillez redémarrer l'application."))
             self.controls_group.setEnabled(True)
             self.btn_run.setEnabled(True)
@@ -194,7 +207,7 @@ class FourDGSTab(QWidget):
             self.chk_activate.setChecked(False)
         finally:
             progress.close()
-    
+
     def _log_to_view(self, text):
         """Helper to append log line to the text view."""
         self.log_view.append(text)
@@ -215,7 +228,7 @@ class FourDGSTab(QWidget):
     def run_process(self):
         src = self.input_edit.text().strip()
         dst = self.output_edit.text().strip()
-        
+
         if not src or not dst:
             QMessageBox.warning(self, tr("msg_warning"), tr("err_no_paths"))
             return
@@ -227,7 +240,7 @@ class FourDGSTab(QWidget):
         self.btn_run.setEnabled(False)
         self.btn_stop.setEnabled(True)
         self.log_view.clear()
-        
+
         self.worker = FourDGSWorker(src, dst, self.fps_spin.value())
         self.worker.log_signal.connect(self.append_log)
         self.worker.finished_signal.connect(self.on_process_finished)
@@ -247,9 +260,9 @@ class FourDGSTab(QWidget):
         self.btn_colmap.setEnabled(False)
         self.btn_stop.setEnabled(True)
         self.log_view.clear()
-        
+
         self.append_log(tr("four_dgs_msg_colmap_start", dst))
-        
+
         # Use existing worker but with a flag? Or just call engine directly if synchronous?
         # Better use worker to avoid blocking.
         self.worker = FourDGSWorker(None, dst, self.fps_spin.value()) # None for videos_dir signals colmap only
@@ -298,7 +311,7 @@ class FourDGSTab(QWidget):
 
     def get_state(self):
         return self.get_params()
-        
+
     def set_state(self, state):
         self.set_params(state)
 

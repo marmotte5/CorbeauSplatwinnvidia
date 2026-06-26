@@ -1,7 +1,7 @@
-from PyQt6.QtWidgets import QLineEdit
-from PyQt6.QtCore import pyqtSignal
 from pathlib import Path
-from typing import Optional
+
+from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtWidgets import QLineEdit
 
 
 class DropLineEdit(QLineEdit):
@@ -16,7 +16,7 @@ class DropLineEdit(QLineEdit):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAcceptDrops(True)
-        self._allowed_base_dirs: Optional[list[Path]] = None
+        self._allowed_base_dirs: list[Path] | None = None
 
     def set_allowed_base_dirs(self, dirs: list[Path]):
         """Set allowed base directories for containment validation."""

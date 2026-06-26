@@ -1,10 +1,10 @@
 import os
-import logging
-from pathlib import Path
-from typing import Optional, Dict, Any, Callable, List, Tuple
+from collections.abc import Callable
+from typing import Any
 
 from .base_engine import BaseEngine
 from .system import resolve_binary
+
 
 class BrushEngine(BaseEngine):
     """Engine for executing the Brush training pipeline.
@@ -19,7 +19,7 @@ class BrushEngine(BaseEngine):
         "--eval-every", "--export-every", "--max-resolution", "--refine-pose"
     }
 
-    def __init__(self, logger_callback: Optional[Callable] = None) -> None:
+    def __init__(self, logger_callback: Callable | None = None) -> None:
         """Initialize the Brush engine.
 
         Parameters
@@ -32,7 +32,7 @@ class BrushEngine(BaseEngine):
         self.process = None
 
     def build_command(self, input_path: str, output_path: str,
-                      params: Optional[Dict[str, Any]] = None) -> Tuple[List[str], Dict[str, str]]:
+                      params: dict[str, Any] | None = None) -> tuple[list[str], dict[str, str]]:
         """Build the Brush command list and environment from parameters.
 
         Parameters
@@ -105,7 +105,7 @@ class BrushEngine(BaseEngine):
         cmd.append(str(input_path))
         return cmd, env
 
-    def train(self, input_path: str, output_path: str, params: Optional[Dict[str, Any]] = None) -> int:
+    def train(self, input_path: str, output_path: str, params: dict[str, Any] | None = None) -> int:
         """Run the Brush training process.
 
         Parameters

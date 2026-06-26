@@ -18,6 +18,40 @@ from .system import get_optimal_threads, has_cuda, resolve_binary
 _IMAGE_EXTS = {'.jpg', '.jpeg', '.png'}
 
 
+def _imread_unicode(path, flags):
+    """cv2.imread that tolerates non-ASCII paths on Windows (cv2 fails on them)."""
+    import cv2
+    import numpy as np
+    try:
+        data = np.fromfile(str(path), dtype=np.uint8)
+        if data.size == 0:
+            return None
+        return cv2.imdecode(data, flags)
+    except (OSError, ValueError):
+        return None
+
+
+def _imwrite_unicode(path, img) -> bool:
+    """cv2.imwrite that tolerates non-ASCII paths on Windows. Returns success.
+
+    Encodes to an in-memory buffer first, then unlinks the destination before
+    writing a fresh file — this both breaks any hardlink (so a hardlinked
+    original is never modified) and avoids leaving the file deleted if encoding
+    fails.
+    """
+    import cv2
+    p = Path(path)
+    ok, buf = cv2.imencode(p.suffix or ".png", img)
+    if not ok:
+        return False
+    try:
+        p.unlink(missing_ok=True)
+        buf.tofile(str(p))
+        return True
+    except OSError:
+        return False
+
+
 def _first_available_model() -> str:
     try:
         from app.upscayl_manager import get_models_dir
@@ -428,7 +462,7 @@ class ColmapEngine(BaseEngine):
         def _score_one(f):
             # cv2 releases the GIL during imread/resize/Laplacian, so threading
             # scales well. Downscaling to ≤640px preserves the relative ranking.
-            img = cv2.imread(str(f), cv2.IMREAD_GRAYSCALE)
+            img = _imread_unicode(f, cv2.IMREAD_GRAYSCALE)
             if img is None:
                 return f, None
             h, w = img.shape[:2]
@@ -634,15 +668,13 @@ class ColmapEngine(BaseEngine):
         for i, f in enumerate(to_resize):
             if self.is_cancelled():
                 return False
-            img = cv2.imread(str(f), cv2.IMREAD_UNCHANGED)
+            img = _imread_unicode(f, cv2.IMREAD_UNCHANGED)
             if img is None:
                 self.log(f"⚠️ Re-lecture impossible: {f.name}")
                 continue
             resized = cv2.resize(img, (min_w, min_h), interpolation=cv2.INTER_AREA)
-            # Break any hardlink first so we write a fresh file and never modify
-            # the user's original image (which may share this inode).
-            f.unlink(missing_ok=True)
-            cv2.imwrite(str(f), resized)
+            if not _imwrite_unicode(f, resized):
+                self.log(f"⚠️ Écriture impossible: {f.name}")
             del img, resized
             if (i + 1) % 10 == 0 or (i + 1) == len(to_resize):
                 self.log(f"Redimensionnement: {i+1}/{len(to_resize)}")
@@ -685,8 +717,17 @@ class ColmapEngine(BaseEngine):
             if self.is_cancelled(): return None
 
             if returncode == 0:
-                num_frames = len([f for f in images_dir.iterdir() if f.suffix == '.jpg'])
+                # Count only frames from THIS video (prefix) to avoid inflating
+                # the total when several videos share images_dir.
+                stem = (f'{prefix}_' if prefix else 'frame_')
+                num_frames = len([
+                    f for f in images_dir.iterdir()
+                    if f.suffix == '.jpg' and f.name.startswith(stem)
+                ])
                 self.log(f"{num_frames} frames extraites")
+                if num_frames == 0:
+                    self.log("⚠️ Aucune frame extraite de cette vidéo.")
+                    return None
                 return True
             else:
                 self.log("Erreur lors de l'extraction")

@@ -113,15 +113,16 @@ def _fetch_release() -> dict:
 
 def _find_windows_asset(assets: list) -> dict | None:
     """Finds the Windows release asset."""
+    # Use specific tokens (not bare "win", which also matches "darwin").
+    win_tokens = ("windows", "win64", "win32", "-win-", "_win_")
     for a in assets:
         name = a["name"].lower()
-        if ("windows" in name or "win64" in name or "win32" in name or "win" in name) and \
-                name.endswith((".zip", ".7z")):
+        if any(t in name for t in win_tokens) and name.endswith((".zip", ".7z")):
             return a
-    # Fallback: any windows-named asset
+    # Fallback: any windows-named archive
     for a in assets:
         name = a["name"].lower()
-        if "windows" in name or "win" in name:
+        if any(t in name for t in win_tokens):
             return a
     return None
 
@@ -151,9 +152,11 @@ def download_binary(log_callback=None) -> Path:
     bin_dir.mkdir(parents=True, exist_ok=True)
     archive_path = bin_dir / asset["name"]
 
-    req = urllib.request.Request(asset["browser_download_url"])
+    req = urllib.request.Request(asset["browser_download_url"], headers={"User-Agent": "CorbeauSplat"})
+    # Stream to disk instead of resp.read() — a several-hundred-MB archive must
+    # not be buffered entirely in RAM.
     with urllib.request.urlopen(req, timeout=120) as resp, open(str(archive_path), "wb") as f:
-        f.write(resp.read())
+        shutil.copyfileobj(resp, f)
 
     checksums = load_expected_checksums()
     checksum_key = "windows_upscayl" if _is_windows() else "linux_upscayl"
@@ -218,9 +221,14 @@ def _extract_archive(archive: Path, bin_dest: Path, models_dest: Path, log):
                 handle_member(info.filename, lambda i=info: zf.read(i.filename))
     elif name_lower.endswith((".tar.gz", ".tgz")):
         with tarfile.open(archive, "r:gz") as tf:
+            def _read_member(m):
+                # extractfile() returns None for non-regular members (links,
+                # dirs) — guard so we never call .read() on None.
+                src = tf.extractfile(m)
+                return src.read() if src is not None else b""
             for member in tf.getmembers():
                 if member.isfile():
-                    handle_member(member.name, lambda m=member: tf.extractfile(m).read())
+                    handle_member(member.name, lambda m=member: _read_member(m))
     else:
         log(f"Unknown archive format: {archive.name}")
 
@@ -289,7 +297,13 @@ def run_upscayl(input_path, output_path, params,
         "-t", str(tile),
     ]
     if models_dir:
-        models_arg = os.path.relpath(str(models_dir), str(Path(binary).parent))
+        # os.path.relpath raises ValueError on Windows when the models dir and
+        # the binary live on different drives (e.g. C:\ binary, I:\ models) —
+        # fall back to the absolute path in that case.
+        try:
+            models_arg = os.path.relpath(str(models_dir), str(Path(binary).parent))
+        except ValueError:
+            models_arg = str(Path(models_dir).resolve())
         cmd += ["-m", models_arg]
     if tta:
         cmd.append("-x")

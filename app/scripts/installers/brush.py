@@ -142,9 +142,11 @@ class BrushEngineDep(EngineDependency):
 
         archive_path = self.engines_dir / f"brush-app-{platform_suffix}"
         try:
-            req = urllib.request.Request(release_url)
+            import shutil
+            req = urllib.request.Request(release_url, headers={"User-Agent": "CorbeauSplat"})
+            # Stream — the Brush binary is tens of MB; avoid buffering in RAM.
             with urllib.request.urlopen(req, timeout=120) as resp, open(str(archive_path), "wb") as f:
-                f.write(resp.read())
+                shutil.copyfileobj(resp, f)
         except Exception as e:
             print(f"⚠️ Download failed: {e}")
             if archive_path.exists():

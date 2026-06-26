@@ -9,30 +9,13 @@ from pathlib import Path
 
 # ── Re-export all classes and functions for backward compatibility ──────────
 from app.scripts.installers.base import (
-    EngineDependency,
-    PipEngine,
     DependencyManager,
 )
 from app.scripts.installers.brush import BrushEngineDep
+from app.scripts.installers.extractor_360 import Extractor360EngineDep
 from app.scripts.installers.mapping import ColmapEngineDep, FfmpegEngineDep, GlomapEngineDep
 from app.scripts.installers.supersplat import SuperSplatEngineDep
-from app.scripts.installers.extractor_360 import Extractor360EngineDep
 from app.scripts.installers.upscayl import UpscaylEngineDep
-from app.scripts.installers.tools import (
-    load_config,
-    relax_requirements,
-    get_remote_version,
-    get_local_version,
-    save_local_version,
-    check_cargo,
-    check_winget,
-    check_node,
-    check_cmake_ninja,
-    install_node_js,
-    install_build_tools,
-    install_rust_toolchain,
-    install_system_dependencies,
-)
 
 # ── Compatibility wrappers (used by external modules) ──────────────────────
 
@@ -54,7 +37,6 @@ def install_extractor_360():
 
 def get_venv_360_python():
     """Returns path to python executable in .venv_360"""
-    from app.core.system import resolve_project_root
     root = resolve_project_root()
     if sys.platform == "win32":
         return root / ".venv_360" / "Scripts" / "python.exe"
@@ -62,7 +44,6 @@ def get_venv_360_python():
 
 
 # resolve_project_root is imported from app.core.system
-from app.core.system import resolve_project_root
 
 
 # ── Main entry point ──────────────────────────────────────────────────────
@@ -80,7 +61,7 @@ def main():
     manager.register(SuperSplatEngineDep())
     manager.register(Extractor360EngineDep())
     manager.register(UpscaylEngineDep())
-    
+
     check_only = "--check" in sys.argv
     startup = "--startup" in sys.argv
     manager.main_install(check_only=check_only, startup=startup)

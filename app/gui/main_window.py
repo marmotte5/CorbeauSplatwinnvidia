@@ -27,6 +27,7 @@ class ColmapGUI(QMainWindow):
         super().__init__()
         self.worker = None
         self.brush_worker = None
+        self.fourdgs_worker = None
 
         self.session_manager = SessionManager(self)
 
@@ -271,7 +272,13 @@ class ColmapGUI(QMainWindow):
                 QMessageBox.information(self, tr("msg_success"),
                                         f"{message}\n\n{tr('success_open_brush')}")
         else:
-            if not (self.worker and self.worker.stopped_by_user):
+            # The finished worker may be the COLMAP/360 worker or the 4DGS one.
+            # Suppress the error dialog only when the user pressed Stop.
+            stopped_by_user = (
+                (self.worker and self.worker.stopped_by_user) or
+                (self.fourdgs_worker and self.fourdgs_worker.stopped_by_user)
+            )
+            if not stopped_by_user:
                 QMessageBox.warning(self, tr("msg_error"), f"{tr('msg_error')}:\n{message}")
 
     def delete_dataset(self):
@@ -428,5 +435,30 @@ class ColmapGUI(QMainWindow):
     def closeEvent(self, event):
         """Appelé à la fermeture de la fenêtre"""
         self.session_manager.save(immediate=True)
+
+        # Stop running worker threads before the window (and the QThreads) are
+        # destroyed — otherwise Qt aborts with "QThread: Destroyed while thread
+        # is still running".
+        for worker in (self.worker, self.brush_worker, self.fourdgs_worker,
+                       getattr(self.cleaner_tab, "worker", None)):
+            try:
+                if worker and worker.isRunning():
+                    worker.stop()
+                    worker.wait(3000)
+            except RuntimeError:
+                pass
+
+        # Qt only delivers closeEvent to the top-level window, not child tabs,
+        # so stop the SuperSplat/preview subprocesses (node/http servers holding
+        # ports) explicitly here.
+        try:
+            self.superplat_tab.stop_server()
+        except (RuntimeError, AttributeError):
+            pass
+        try:
+            self.cleaner_tab.preview_engine.stop_all()
+        except (RuntimeError, AttributeError):
+            pass
+
         event.accept()
 

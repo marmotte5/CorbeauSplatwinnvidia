@@ -1,9 +1,12 @@
-import subprocess
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QFrame,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QVBoxLayout,
 )
 
 
@@ -55,10 +58,11 @@ class TestWorker(QThread):
 
     def run(self):
         try:
-            from app.upscayl_manager import run_upscayl, find_binary, resize_to_original
-            from app.upscayl_models import get_model
             import shutil as _shutil
             import tempfile as _tempfile
+
+            from app.upscayl_manager import find_binary, resize_to_original, run_upscayl
+            from app.upscayl_models import get_model
 
             model_id = self.params.get("model_id", "")
             if not model_id:

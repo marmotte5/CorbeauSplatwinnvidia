@@ -218,9 +218,12 @@ def download_and_extract_zip(url: str, dest_dir: Path, log=print) -> bool:
     tmp = Path(tmp_name)
     try:
         log(f"Downloading {url} ...")
+        import shutil
         req = urllib.request.Request(url, headers={"User-Agent": "CorbeauSplat"})
-        with urllib.request.urlopen(req, timeout=600) as resp:
-            tmp.write_bytes(resp.read())
+        # Stream to disk — COLMAP/ffmpeg archives are hundreds of MB and must
+        # not be buffered entirely in RAM (resp.read()).
+        with urllib.request.urlopen(req, timeout=600) as resp, open(tmp, "wb") as f:
+            shutil.copyfileobj(resp, f)
         log(f"Extracting into {dest_dir} ...")
         _safe_extract_zip(tmp, dest_dir)
         return True

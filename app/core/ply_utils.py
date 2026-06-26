@@ -7,8 +7,6 @@ and reduce the ExportEngine class size.
 import math
 import struct
 from pathlib import Path
-from typing import Optional
-
 
 # ── SPZ compression (pure math, no dependencies) ──────────────────────────
 
@@ -137,6 +135,13 @@ def parse_ply_manual(input_file: Path) -> tuple:
 
             if np_dtypes:
                 data = np.fromfile(f, dtype=np_dtypes, count=num_vertices)
+                # `row` is a numpy.void (structured scalar) which has NO .get()
+                # method — use the field-name set to provide safe defaults.
+                field_names = set(data.dtype.names or ())
+
+                def _field(row, name, default):
+                    return float(row[name]) if name in field_names else float(default)
+
                 for i in range(num_vertices):
                     row = data[i]
                     x, y, z = float(row['x']), float(row['y']), float(row['z'])
@@ -149,25 +154,25 @@ def parse_ply_manual(input_file: Path) -> tuple:
 
                     if has_scales:
                         scales.extend([
-                            int((math.log(max(float(row.get('scale_0', -2.0)), 1e-10)) + 10) / 20 * 255),
-                            int((math.log(max(float(row.get('scale_1', -2.0)), 1e-10)) + 10) / 20 * 255),
-                            int((math.log(max(float(row.get('scale_2', -2.0)), 1e-10)) + 10) / 20 * 255),
+                            int((math.log(max(_field(row, 'scale_0', -2.0), 1e-10)) + 10) / 20 * 255),
+                            int((math.log(max(_field(row, 'scale_1', -2.0), 1e-10)) + 10) / 20 * 255),
+                            int((math.log(max(_field(row, 'scale_2', -2.0), 1e-10)) + 10) / 20 * 255),
                         ])
                     else:
                         scales.extend([0, 0, 0])
 
                     if has_rots:
                         rotations.extend(compress_rotation(
-                            float(row.get('rot_0', 1.0)),
-                            float(row.get('rot_1', 0.0)),
-                            float(row.get('rot_2', 0.0)),
-                            float(row.get('rot_3', 0.0)),
+                            _field(row, 'rot_0', 1.0),
+                            _field(row, 'rot_1', 0.0),
+                            _field(row, 'rot_2', 0.0),
+                            _field(row, 'rot_3', 0.0),
                         ))
                     else:
                         rotations.extend([127, 127, 127])
 
                     if has_alpha:
-                        alphas.append(compress_alpha(float(row.get('opacity', 1.0))))
+                        alphas.append(compress_alpha(_field(row, 'opacity', 1.0)))
                     else:
                         alphas.append(255)
         else:
