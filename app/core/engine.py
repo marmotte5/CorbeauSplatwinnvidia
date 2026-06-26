@@ -9,7 +9,7 @@ import sqlite3
 from pathlib import Path
 from typing import Tuple, Any, Optional, Callable
 from .base_engine import BaseEngine
-from .system import is_apple_silicon, get_optimal_threads, resolve_binary
+from .system import has_cuda, get_optimal_threads, resolve_binary
 from .i18n import tr
 
 _IMAGE_EXTS = {'.jpg', '.jpeg', '.png'}
@@ -36,7 +36,7 @@ class ColmapEngine(BaseEngine):
         self.input_type = input_type
         self.fps = fps
         self.project_name = project_name
-        self.is_silicon = is_apple_silicon()
+        self.has_cuda = has_cuda()
         self.num_threads = get_optimal_threads()
         self._current_process = None
         self.progress = progress_callback if progress_callback else lambda x: None
@@ -56,8 +56,10 @@ class ColmapEngine(BaseEngine):
         except ImportError:
             self._cv2_loaded = False
             
-        if self.is_silicon:
-            self.log(f"Apple Silicon détecté - {self.num_threads} threads optimisés")
+        if self.has_cuda:
+            self.log(f"GPU NVIDIA CUDA détecté - {self.num_threads} threads, accélération GPU activée")
+        else:
+            self.log(f"Aucun GPU CUDA détecté - exécution CPU ({self.num_threads} threads)")
         self.log(f"Binaires: {self.colmap_bin}, {self.ffmpeg_bin}, {self.glomap_bin}")
 
     @property
@@ -455,9 +457,9 @@ class ColmapEngine(BaseEngine):
         output_pattern = images_dir / (f'{prefix}_%04d.jpg' if prefix else 'frame_%04d.jpg')
         
         cmd = [self.ffmpeg_bin]
-        if self.is_silicon:
-            cmd.extend(['-hwaccel', 'videotoolbox'])
-        
+        if self.has_cuda:
+            cmd.extend(['-hwaccel', 'cuda'])
+
         cmd.extend([
             '-i', video_path,
             '-vf', f'fps={self.fps}',
@@ -495,11 +497,9 @@ class ColmapEngine(BaseEngine):
         self.log(f"\n{'='*60}\n{description}\n{'='*60}")
         
         env = os.environ.copy()
-        if self.is_silicon:
-            env['OMP_NUM_THREADS'] = str(self.num_threads)
-            env['VECLIB_MAXIMUM_THREADS'] = str(self.num_threads)
-            env['OPENBLAS_NUM_THREADS'] = str(self.num_threads)
-            
+        env['OMP_NUM_THREADS'] = str(self.num_threads)
+        env['OPENBLAS_NUM_THREADS'] = str(self.num_threads)
+
         def _colmap_parser(line_str: str):
             self.log(line_str)
             if status_prefix:
@@ -535,7 +535,9 @@ class ColmapEngine(BaseEngine):
                 return False
                 
         except FileNotFoundError:
-            self.log(f"COLMAP non trouve. Installez avec: brew install colmap")
+            self.log("COLMAP introuvable. Installez une build CUDA depuis "
+                     "https://github.com/colmap/colmap/releases (ex. colmap-x64-windows-cuda.zip) "
+                     "et ajoutez-le au PATH.")
             return False
 
     def feature_extraction(self, database_path: str, images_dir: str) -> bool:
@@ -552,6 +554,7 @@ class ColmapEngine(BaseEngine):
             '--SiftExtraction.max_num_features', str(self.params.max_num_features),
             '--SiftExtraction.estimate_affine_shape', '1' if self.params.estimate_affine_shape else '0',
             '--SiftExtraction.domain_size_pooling', '1' if self.params.domain_size_pooling else '0',
+            '--SiftExtraction.use_gpu', '1' if self.has_cuda else '0',
         ]
         if image_list_path:
             cmd.extend(['--image_list_path', str(image_list_path)])
@@ -675,6 +678,7 @@ class ColmapEngine(BaseEngine):
                 '--SiftMatching.max_distance', str(self.params.max_distance),
                 '--SiftMatching.cross_check', '1' if self.params.cross_check else '0',
                 '--FeatureMatching.guided_matching', '1' if self.params.guided_matching else '0',
+                '--SiftMatching.use_gpu', '1' if self.has_cuda else '0',
                 '--SequentialMatching.overlap', str(self.params.sequential_overlap),
                 '--SequentialMatching.quadratic_overlap', '1',
             ]
@@ -688,6 +692,7 @@ class ColmapEngine(BaseEngine):
                 '--SiftMatching.max_distance', str(self.params.max_distance),
                 '--SiftMatching.cross_check', '1' if self.params.cross_check else '0',
                 '--FeatureMatching.guided_matching', '1' if self.params.guided_matching else '0',
+                '--SiftMatching.use_gpu', '1' if self.has_cuda else '0',
             ]
             description = "Matching Exhaustif"
             
@@ -747,9 +752,9 @@ class ColmapEngine(BaseEngine):
             "dataset_type": "colmap",
             "images_path": str(final_images_path),
             "sparse_path": str(final_sparse_path),
-            "created_with": "CorbeauSplat macOS",
+            "created_with": "CorbeauSplat Windows",
             "architecture": platform.machine(),
-            "optimized_for": "Apple Silicon" if self.is_silicon else "x86_64",
+            "optimized_for": "CUDA" if self.has_cuda else "CPU",
             "parameters": self.params.to_dict()
         }
         config_path = output_dir / "brush_config.json"

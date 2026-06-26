@@ -18,14 +18,12 @@ from app.gui.tabs.config_tab import ConfigTab
 from app.gui.tabs.params_tab import ParamsTab
 from app.gui.tabs.logs_tab import LogsTab
 from app.gui.tabs.brush_tab import BrushTab
-from app.gui.tabs.sharp_tab import SharpTab
 from app.gui.tabs.superplat_tab import SuperSplatTab
 from app.gui.tabs.upscale_tab import UpscaleTab
 from app.gui.tabs.four_dgs_tab import FourDGSTab
 from app.gui.tabs.extractor_360_tab import Extractor360Tab
 from app.gui.tabs.export_tab import ExportTab
-from app.gui.workers import ColmapWorker, BrushWorker, SharpWorker, FourDGSWorker
-from app.gui.workers import SharpVideoWorker
+from app.gui.workers import ColmapWorker, BrushWorker, FourDGSWorker
 from app import VERSION
 
 class ColmapGUI(QMainWindow):
@@ -33,8 +31,7 @@ class ColmapGUI(QMainWindow):
         super().__init__()
         self.worker = None
         self.brush_worker = None
-        self.sharp_worker = None
-        
+
         self.session_manager = SessionManager(self)
         
         self.init_ui()
@@ -66,9 +63,6 @@ class ColmapGUI(QMainWindow):
 
         self.superplat_tab = SuperSplatTab()
         self.tabs.addTab(self.superplat_tab, tr("tab_supersplat"))
-
-        self.sharp_tab = SharpTab()
-        self.tabs.addTab(self.sharp_tab, tr("tab_sharp"))
 
         self.four_dgs_tab = FourDGSTab()
         self.tabs.addTab(self.four_dgs_tab, tr("tab_four_dgs"))
@@ -105,11 +99,6 @@ class ColmapGUI(QMainWindow):
         self.brush_tab.trainRequested.connect(self.train_brush)
         self.brush_tab.stopRequested.connect(self.stop_brush)
         self.brush_tab.restartRequested.connect(self.restart_application)
-        
-
-        
-        self.sharp_tab.predictRequested.connect(self.run_sharp)
-        self.sharp_tab.stopRequested.connect(self.stop_sharp)
 
         self.upscale_tab.log_signal.connect(self.logs_tab.append_log)
 
@@ -128,7 +117,6 @@ class ColmapGUI(QMainWindow):
             self.superplat_tab: tr("tab_supersplat"),
             self.upscale_tab: tr("tab_upscale"),
             self.export_tab: tr("tab_export"),
-            self.sharp_tab: tr("tab_sharp"),
             self.four_dgs_tab: tr("tab_four_dgs"),
             self.extractor_360_tab: tr("tab_360"),
             self.logs_tab: tr("tab_logs")
@@ -148,7 +136,6 @@ class ColmapGUI(QMainWindow):
             self.config_tab,
             self.upscale_tab,
             self.export_tab,
-            self.sharp_tab,
             self.four_dgs_tab,
             self.extractor_360_tab,
             self.logs_tab
@@ -176,8 +163,6 @@ class ColmapGUI(QMainWindow):
         """Combine global upscale settings with the toggle from Config Tab"""
         upscale_params = self.upscale_tab.get_params()
         upscale_params["active"] = self.config_tab.get_upscale()
-        # For Sharp worker, it expects 'upscale' key
-        upscale_params["upscale"] = upscale_params["active"]
         return upscale_params
 
     def get_extractor_360_config(self):
@@ -215,31 +200,6 @@ class ColmapGUI(QMainWindow):
             self.worker.finished_signal.connect(self.on_finished)
             self.worker.start()
             
-        elif mode == "sharp":
-            self.logs_tab.append_log(tr("msg_processing") + " (ML Sharp)")
-            sharp_params = self.sharp_tab.get_params()
-            
-            # Retrieve upscale settings but keep the 'upscale' checkbox value from sharp_tab!
-            sharp_upscale_checked = sharp_params.get("upscale", False)
-            sharp_params.update(self.get_upscale_config())
-            sharp_params["upscale"] = sharp_upscale_checked
-            
-            input_type = self.config_tab.get_input_type()
-            if input_type == "video":
-                sharp_params["mode"] = "video"
-                if hasattr(self.config_tab, "spin_sharp_skip"):
-                    sharp_params["skip_frames"] = self.config_tab.spin_sharp_skip.value()
-                self.sharp_worker = SharpVideoWorker(input_path, output_path, sharp_params)
-            else:
-                sharp_params["mode"] = "image"
-                self.sharp_worker = SharpWorker(input_path, output_path, sharp_params)
-                
-            self.sharp_worker.log_signal.connect(self.logs_tab.append_log)
-            self.sharp_worker.progress_signal.connect(self.config_tab.progress_bar.setValue)
-            self.sharp_worker.status_signal.connect(self.config_tab.lbl_status.setText)
-            self.sharp_worker.finished_signal.connect(self.on_sharp_finished)
-            self.sharp_worker.start()
-            
         elif mode == "360":
             self.logs_tab.append_log(tr("msg_processing") + " (360 Extractor)")
             ext_params = self.extractor_360_tab.get_params()
@@ -271,7 +231,6 @@ class ColmapGUI(QMainWindow):
     def stop_process(self):
         """Arrête le processus en cours"""
         if (self.worker and self.worker.isRunning()) or \
-           (self.sharp_worker and self.sharp_worker.isRunning()) or \
            (hasattr(self, 'fourdgs_worker') and self.fourdgs_worker and self.fourdgs_worker.isRunning()):
             
             reply = QMessageBox.question(
@@ -282,7 +241,6 @@ class ColmapGUI(QMainWindow):
             if reply == QMessageBox.StandardButton.Yes:
                 self.logs_tab.append_log(tr("msg_stopping"))
                 if self.worker and self.worker.isRunning(): self.worker.stop()
-                if self.sharp_worker and self.sharp_worker.isRunning(): self.sharp_worker.stop()
                 if hasattr(self, 'fourdgs_worker') and self.fourdgs_worker and self.fourdgs_worker.isRunning(): self.fourdgs_worker.stop()
         
     def on_finished(self, success, message):
@@ -440,104 +398,6 @@ class ColmapGUI(QMainWindow):
         else:
             if not (self.brush_worker and self.brush_worker.stopped_by_user):
                 QMessageBox.warning(self, tr("brush_error_title"), tr("brush_error_body"))
-
-
-
-    def run_sharp(self):
-        """Lance Sharp"""
-        params = self.sharp_tab.get_params()
-        
-        # Merge upscale settings for run_sharp as well
-        sharp_upscale_checked = params.get("upscale", False)
-        params.update(self.upscale_tab.get_params())
-        params["upscale"] = sharp_upscale_checked
-        
-        mode = params.get("mode", "image")
-        
-        self.sharp_tab.set_processing_state(True)
-        self.logs_tab.append_log(f"--- Lancement Apple ML Sharp (Mode: {mode}) ---")
-        
-        if mode == "image":
-            input_path_str = params.get("input_path")
-            output_path_str = params.get("output_path")
-            
-            if not input_path_str:
-                 QMessageBox.critical(self, tr("msg_error"), "Veuillez selectionner un dossier d'images valide.")
-                 self.sharp_tab.set_processing_state(False)
-                 return
-                 
-            input_path = Path(input_path_str)
-            if not input_path.exists():
-                 QMessageBox.critical(self, tr("msg_error"), "Veuillez selectionner un dossier d'images valide.")
-                 self.sharp_tab.set_processing_state(False)
-                 return
-                 
-            if not output_path_str:
-                 QMessageBox.critical(self, tr("msg_error"), "Veuillez selectionner un dossier de sortie.")
-                 self.sharp_tab.set_processing_state(False)
-                 return
-            
-            output_path = Path(output_path_str)
-            
-            self.logs_tab.append_log(f"Input: {input_path}")
-            self.logs_tab.append_log(f"Output: {output_path}")
-            
-            self.sharp_worker = SharpWorker(str(input_path), str(output_path), params)
-            
-        else: # video
-            video_path_str = params.get("video_path")
-            output_path_str = params.get("video_output_path")
-            
-            if not video_path_str:
-                 QMessageBox.critical(self, tr("msg_error"), "Veuillez selectionner un fichier video.")
-                 self.sharp_tab.set_processing_state(False)
-                 return
-                 
-            video_path = Path(video_path_str)
-            if not video_path.exists():
-                 QMessageBox.critical(self, tr("msg_error"), "Veuillez selectionner un fichier video existant.")
-                 self.sharp_tab.set_processing_state(False)
-                 return
-                 
-            if not output_path_str:
-                 QMessageBox.critical(self, tr("msg_error"), "Veuillez selectionner un dossier de sortie.")
-                 self.sharp_tab.set_processing_state(False)
-                 return
-                 
-            output_path = Path(output_path_str)
-            
-            self.logs_tab.append_log(f"Video Input: {video_path}")
-            self.logs_tab.append_log(f"Output: {output_path}")
-            
-            self.sharp_worker = SharpVideoWorker(str(video_path), str(output_path), params)
-
-        self.sharp_worker.log_signal.connect(self.logs_tab.append_log)
-        if hasattr(self.sharp_worker, "progress_signal"):
-            self.sharp_worker.progress_signal.connect(self.config_tab.progress_bar.setValue)
-            self.sharp_worker.progress_signal.connect(self.sharp_tab.progress_bar.setValue)
-        if hasattr(self.sharp_worker, "status_signal"):
-            self.sharp_worker.status_signal.connect(self.config_tab.lbl_status.setText)
-        self.sharp_worker.finished_signal.connect(self.on_sharp_finished)
-        self.sharp_worker.start()
-        
-        self.tabs.setCurrentWidget(self.logs_tab)
-        
-    def stop_sharp(self):
-        """Arrête Sharp"""
-        if self.sharp_worker and self.sharp_worker.isRunning():
-            self.sharp_worker.stop()
-            self.logs_tab.append_log("Arrêt de Sharp demandé...")
-            
-    def on_sharp_finished(self, success, message):
-        """Fin Sharp"""
-        self.sharp_tab.set_processing_state(False)
-        self.config_tab.set_processing_state(False)
-        self.logs_tab.append_log(message)
-
-        if success:
-            QMessageBox.information(self, tr("sharp_done_title"), tr("sharp_done_body"))
-        else:
-            QMessageBox.warning(self, tr("sharp_error_title"), tr("sharp_error_body"))
 
     def restart_application(self):
         """Redémarre l'application."""

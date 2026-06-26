@@ -39,7 +39,6 @@ class SessionManager:
             "config": self.mw.config_tab,
             "colmap_params": self.mw.params_tab,
             "brush_params": self.mw.brush_tab,
-            "sharp_params": self.mw.sharp_tab,
             "upscale_params": self.mw.upscale_tab,
             "extractor_360_params": self.mw.extractor_360_tab,
             "four_dgs_params": self.mw.four_dgs_tab,
@@ -73,7 +72,6 @@ class SessionManager:
                 "config": self.mw.config_tab,
                 "colmap_params": self.mw.params_tab,
                 "brush_params": self.mw.brush_tab,
-                "sharp_params": self.mw.sharp_tab,
                 "upscale_params": self.mw.upscale_tab,
                 "extractor_360_params": self.mw.extractor_360_tab,
                 "four_dgs_params": self.mw.four_dgs_tab,
@@ -146,10 +144,10 @@ class AppLifecycle:
         QApplication.quit()
         
         root_dir = resolve_project_root().resolve()
-        run_cmd = root_dir / "run.command"
-        
+        run_cmd = root_dir / "run.bat"
+
         # Collect deletion targets (relative names only)
-        targets_rel = [".venv", ".venv_sharp", ".venv_360"]
+        targets_rel = [".venv", ".venv_360", ".venv_4dgs"]
         
         if deep:
             targets_rel.append("engines")
@@ -189,11 +187,11 @@ class AppLifecycle:
                 except (ValueError, OSError):
                     pass
         
-        # Relaunch via run.command
+        # Relaunch via run.bat (Windows)
         if run_cmd.exists():
             logger.info("Reset: relaunching via %s", run_cmd)
-            subprocess.Popen(["open", str(run_cmd)], start_new_session=True)
+            subprocess.Popen(["cmd", "/c", "start", "", str(run_cmd)], cwd=str(root_dir))
         else:
-            logger.warning("Reset: run.command not found at %s, relaunching main.py", run_cmd)
-            subprocess.Popen([sys.executable, str(root_dir / "main.py"), "--gui"], start_new_session=True)
+            logger.warning("Reset: run.bat not found at %s, relaunching main.py", run_cmd)
+            subprocess.Popen([sys.executable, str(root_dir / "main.py"), "--gui"], cwd=str(root_dir))
         sys.exit(0)

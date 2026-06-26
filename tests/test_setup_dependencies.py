@@ -185,12 +185,12 @@ class TestSetupDependenciesUtils:
             from app.scripts.installers.tools import check_cargo
             assert check_cargo() is False
 
-    def test_check_brew(self):
-        """check_brew vérifie la présence de brew."""
+    def test_check_winget(self):
+        """check_winget vérifie la présence de winget."""
         with patch("app.scripts.installers.tools.shutil.which") as mock_which:
-            mock_which.return_value = "/opt/homebrew/bin/brew"
-            from app.scripts.installers.tools import check_brew
-            assert check_brew() is True
+            mock_which.return_value = r"C:\\Windows\\winget.exe"
+            from app.scripts.installers.tools import check_winget
+            assert check_winget() is True
 
     def test_check_node(self):
         """check_node vérifie node et npm."""
@@ -216,27 +216,6 @@ class TestSetupDependenciesUtils:
             mock_which.side_effect = lambda x: f"/usr/local/bin/{x}"
             from app.scripts.installers.tools import check_cmake_ninja
             assert check_cmake_ninja() is True
-
-    def test_check_xcode_tools_present(self):
-        """check_xcode_tools retourne True si xcode-select -p réussit."""
-        with patch("app.scripts.installers.tools.subprocess.check_call") as mock_check:
-            from app.scripts.installers.tools import check_xcode_tools
-            assert check_xcode_tools() is True
-            mock_check.assert_called_once_with(
-                ["xcode-select", "-p"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-
-    def test_check_xcode_tools_missing(self):
-        """check_xcode_tools retourne False si xcode-select échoue."""
-        import sys as _sys
-        if _sys.platform != "darwin":
-            pytest.skip("xcode-select test only relevant on macOS")
-        with patch("app.scripts.installers.tools.subprocess.check_call") as mock_check:
-            mock_check.side_effect = subprocess.CalledProcessError(1, "xcode-select")
-            from app.scripts.installers.tools import check_xcode_tools
-            assert check_xcode_tools() is False
 
     def test_get_remote_version(self):
         """get_remote_version utilise git ls-remote."""
