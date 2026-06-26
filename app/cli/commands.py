@@ -149,6 +149,20 @@ def run_brush(args):
         engine.stop()
 
 
+def run_clean(args):
+    from app.core.ply_cleaner import clean_ply
+
+    print(f"Nettoyage du splat : {args.input}  (sévérité: {args.strength})")
+    try:
+        stats = clean_ply(args.input, args.output, strength=args.strength, log=print)
+    except Exception as e:
+        print(f"{tr('msg_error')}: {e}")
+        sys.exit(1)
+
+    print(f"✅ {stats['kept']}/{stats['total']} splats conservés "
+          f"({stats['removed']} retirés) → {args.output}")
+
+
 def run_supersplat(args):
     engine = SuperSplatEngine()
 
@@ -412,6 +426,7 @@ DISPATCH = {
     "pipeline":    run_pipeline,
     "colmap":      run_colmap,
     "brush":       run_brush,
+    "clean":       run_clean,
     "view":        run_supersplat,
     "upscale":     run_upscale,
     "4dgs":        run_4dgs,

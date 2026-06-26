@@ -17,6 +17,7 @@ A unified GUI (and CLI) to orchestrate:
 5.  **AI Upscaling** *(optional)*: Enhances input images with **upscayl-ncnn** before reconstruction.
 6.  **Training**: Integrates **Brush** (Rust/wgpu, DirectX 12 / Vulkan) to train Gaussian Splats on your GPU.
 7.  **Visualization**: Built-in **SuperSplat** tab for immediate local viewing/editing of `.ply` files.
+8.  **Splat Cleanup**: A **Nettoyage / Cleaner** tab that loads a `.ply` and automatically removes sky, "floaters", near-transparent and isolated splats (variance/opacity/scale + outlier filtering), with a SuperSplat preview before saving. Also available via `python main.py clean -i in.ply -o out.ply`.
 8.  **4DGS Preparation (Experimental)**: Prepares 4D Gaussian Splatting datasets (multi-camera video → Nerfstudio format).
 9.  **360 Extractor (Experimental)**: Converts equirectangular 360° videos into planar image sets.
 

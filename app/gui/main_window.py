@@ -10,6 +10,7 @@ from app.core.i18n import add_language_observer, tr
 from app.gui.managers import AppLifecycle, SessionManager
 from app.gui.styles import set_dark_theme
 from app.gui.tabs.brush_tab import BrushTab
+from app.gui.tabs.cleaner_tab import CleanerTab
 from app.gui.tabs.config_tab import ConfigTab
 from app.gui.tabs.export_tab import ExportTab
 from app.gui.tabs.extractor_360_tab import Extractor360Tab
@@ -71,6 +72,9 @@ class ColmapGUI(QMainWindow):
         self.export_tab = ExportTab()
         self.tabs.addTab(self.export_tab, tr("tab_export"))
 
+        self.cleaner_tab = CleanerTab()
+        self.tabs.addTab(self.cleaner_tab, tr("tab_cleaner", "Nettoyage"))
+
         self.params_tab = ParamsTab()
         self.tabs.addTab(self.params_tab, tr("tab_params"))
 
@@ -96,6 +100,7 @@ class ColmapGUI(QMainWindow):
         self.brush_tab.restartRequested.connect(self.restart_application)
 
         self.upscale_tab.log_signal.connect(self.logs_tab.append_log)
+        self.cleaner_tab.log_signal.connect(self.logs_tab.append_log)
 
         # Apply visual hierarchy to utility tabs
         self.apply_tab_styling()
@@ -112,6 +117,7 @@ class ColmapGUI(QMainWindow):
             self.superplat_tab: tr("tab_supersplat"),
             self.upscale_tab: tr("tab_upscale"),
             self.export_tab: tr("tab_export"),
+            self.cleaner_tab: tr("tab_cleaner", "Nettoyage"),
             self.four_dgs_tab: tr("tab_four_dgs"),
             self.extractor_360_tab: tr("tab_360"),
             self.logs_tab: tr("tab_logs")
@@ -131,6 +137,7 @@ class ColmapGUI(QMainWindow):
             self.config_tab,
             self.upscale_tab,
             self.export_tab,
+            self.cleaner_tab,
             self.four_dgs_tab,
             self.extractor_360_tab,
             self.logs_tab

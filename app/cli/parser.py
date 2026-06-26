@@ -161,6 +161,13 @@ def get_parser():
     p.add_argument("--compression", type=int, default=0,
                    help="Niveau de compression sortie 0-9 (défaut: 0)")
 
+    # ── clean ─────────────────────────────────────────────────────────────────
+    p = subs.add_parser("clean", help="Nettoyer un splat .ply (ciel/floaters/bruit)")
+    p.add_argument("--input",  "-i", required=True, help="Fichier .ply à nettoyer")
+    p.add_argument("--output", "-o", required=True, help="Fichier .ply de sortie")
+    p.add_argument("--strength", choices=["light", "medium", "strong"], default="medium",
+                   help="Sévérité du nettoyage (défaut: medium)")
+
     # ── 4dgs ──────────────────────────────────────────────────────────────────
     p = subs.add_parser("4dgs", help="Préparation dataset 4D Gaussian Splatting (Nerfstudio)")
     p.add_argument("--input",  "-i", required=True,
