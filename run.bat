@@ -49,6 +49,18 @@ echo --- Phase 0.5: Checking prerequisites ---
 where git >nul 2>&1 || echo  ^(info^) git not found - updates and source builds will be unavailable.
 where nvidia-smi >nul 2>&1 && (echo  NVIDIA GPU detected - CUDA acceleration available.) || (echo  ^(info^) nvidia-smi not found - running on CPU. Install the NVIDIA driver for CUDA.)
 
+rem --- Phase 0.7: Auto-update from git (latest fixes) ---
+if exist ".git" (
+    where git >nul 2>&1 && (
+        echo --- Phase 0.7: Checking for updates ---
+        git pull --ff-only 2>nul && (
+            echo  Up to date with the latest version.
+        ) || (
+            echo  ^(info^) Could not fast-forward ^(local changes or offline^) - continuing with current version.
+        )
+    )
+)
+
 rem --- Phase 1: Locate Python ---
 echo --- Phase 1: Environment configuration ---
 set "VENV_DIR=.venv"
