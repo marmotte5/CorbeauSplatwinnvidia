@@ -348,5 +348,7 @@
     "status_360_pre": "360°预处理中...",
     "status_360_start": "开始360°提取...",
     "status_upscale_done": "超分辨率完成",
-    "btn_brush_standalone": "仅启动 Brush"
+    "btn_brush_standalone": "仅启动 Brush",
+    "check_native_360": "原生360：",
+    "check_ba_use_gpu": "GPU光束法平差："
 }

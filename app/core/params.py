@@ -22,6 +22,11 @@ class ColmapParams:
     ba_refine_focal_length: bool = True
     ba_refine_principal_point: bool = False
     ba_refine_extra_params: bool = True
+    # GPU-accelerated bundle adjustment (COLMAP 4.1.0 "Caspar" solver). OFF by
+    # default — only passed to the mapper when the installed COLMAP supports
+    # --Mapper.ba_use_gpu, otherwise it is silently skipped (no crash).
+    ba_use_gpu: bool = False
+    ba_gpu_index: int = -1
     min_num_matches: int = 15
     matcher_type: str = 'exhaustive' # exhaustive, sequential, vocab_tree
     sequential_overlap: int = 30

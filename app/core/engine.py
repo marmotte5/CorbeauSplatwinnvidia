@@ -810,6 +810,10 @@ class ColmapEngine(BaseEngine):
         else:
             self.log("SIFT : CPU (pas de GPU CUDA détecté)")
 
+        if self.params.camera_model == 'EQUIRECTANGULAR':
+            self.log("Mode 360 natif : modèle de caméra EQUIRECTANGULAR "
+                     "(requiert COLMAP ≥ 4.1.0).")
+
         cmd = [
             self.colmap_bin, 'feature_extractor',
             '--database_path', database_path,
@@ -990,7 +994,43 @@ class ColmapEngine(BaseEngine):
                 '--Mapper.ba_refine_extra_params', '1' if self.params.ba_refine_extra_params else '0',
                 '--Mapper.min_num_matches', str(self.params.min_num_matches),
             ]
+            # GPU bundle adjustment (COLMAP 4.1.0 "Caspar"). Only add the flag if
+            # the installed COLMAP actually supports it — otherwise an older
+            # build would abort with "unrecognized option". This is exactly the
+            # step that throws "Linear solver failure" on the CPU for big scenes.
+            if self.params.ba_use_gpu:
+                if self._mapper_supports_gpu_ba():
+                    cmd += ['--Mapper.ba_use_gpu', '1']
+                    if self.params.ba_gpu_index is not None and self.params.ba_gpu_index >= 0:
+                        cmd += ['--Mapper.ba_gpu_index', str(self.params.ba_gpu_index)]
+                    self.log("Bundle adjustment : GPU (CUDA) ✅")
+                else:
+                    self.log("⚠️ GPU bundle adjustment demandé mais ce COLMAP ne le "
+                             "supporte pas (requiert COLMAP ≥ 4.1.0) → fallback CPU. "
+                             "Supprimez engines\\colmap et relancez run.bat pour mettre à jour.")
             return self.run_command(cmd, "Reconstruction 3D (COLMAP)", status_prefix="Reconstruction 3D")
+
+    def _mapper_supports_gpu_ba(self) -> bool:
+        """True if `colmap mapper` accepts --Mapper.ba_use_gpu (COLMAP ≥ 4.1.0).
+
+        Probed once via the mapper help text and cached, so we never pass an
+        option that an older COLMAP build would reject.
+        """
+        cached = getattr(self, "_gpu_ba_supported", None)
+        if cached is not None:
+            return cached
+        supported = False
+        try:
+            import subprocess
+            out = subprocess.run(
+                [self.colmap_bin, 'mapper', '-h'],
+                capture_output=True, text=True, timeout=15,
+            )
+            supported = 'ba_use_gpu' in (out.stdout + out.stderr)
+        except (OSError, subprocess.SubprocessError):
+            supported = False
+        self._gpu_ba_supported = supported
+        return supported
 
     def image_undistorter(self, images_dir: str, sparse_dir: str, output_dir: str) -> bool:
         """Exécute l'undistortion des images."""
