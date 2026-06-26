@@ -348,5 +348,7 @@
     "status_360_pre": "المعالجة المسبقة 360°...",
     "status_360_start": "بدء استخراج 360°...",
     "status_upscale_done": "اكتمل تحسين الدقة",
-    "btn_brush_standalone": "تشغيل Brush فقط"
+    "btn_brush_standalone": "تشغيل Brush فقط",
+    "check_native_360": "360 أصلي:",
+    "check_ba_use_gpu": "ضبط الحزمة GPU:"
 }

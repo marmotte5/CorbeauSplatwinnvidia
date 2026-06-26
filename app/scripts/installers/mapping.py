@@ -49,10 +49,20 @@ class ColmapEngineDep(EngineDependency):
     then finds ``colmap.exe`` anywhere in that subtree.
     """
     ask_before_update = False
+    # Minimum COLMAP we want installed. 4.1.0 ships GPU bundle adjustment
+    # ("Caspar", fixes "Linear solver failure" on big scenes) and the native
+    # 360 / EQUIRECTANGULAR camera model. An older local build is auto-upgraded.
+    REQUIRED_MIN = "4.1.0"
 
     def __init__(self):
         super().__init__("colmap")
         self.target_dir = self.engines_dir / "colmap"
+
+    @staticmethod
+    def _version_tuple(tag: str) -> tuple:
+        import re
+        nums = re.findall(r"\d+", tag or "")
+        return tuple(int(n) for n in nums[:3]) if nums else (0,)
 
     def is_installed(self) -> bool:
         from app.core.system import resolve_binary
@@ -78,8 +88,14 @@ class ColmapEngineDep(EngineDependency):
         return data.get("tag_name", "") if data else ""
 
     def install(self):
-        if self.is_installed() and self.get_local_version():
-            return
+        local = self.get_local_version()
+        if self.is_installed() and local:
+            # Already installed — only re-download if it's older than the
+            # minimum we need (e.g. a pre-4.1.0 build without GPU BA / 360).
+            if self._version_tuple(local) >= self._version_tuple(self.REQUIRED_MIN):
+                return
+            print(f">>> COLMAP {local} < {self.REQUIRED_MIN} requis "
+                  f"(GPU bundle adjustment + 360 natif) — mise à jour...")
 
         data = self._fetch_latest()
         if not data:

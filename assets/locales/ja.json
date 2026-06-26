@@ -348,5 +348,7 @@
     "status_360_pre": "360°前処理中...",
     "status_360_start": "360°抽出を開始中...",
     "status_upscale_done": "アップスケール完了",
-    "btn_brush_standalone": "Brushのみ起動"
+    "btn_brush_standalone": "Brushのみ起動",
+    "check_native_360": "ネイティブ360:",
+    "check_ba_use_gpu": "GPUバンドル調整:"
 }

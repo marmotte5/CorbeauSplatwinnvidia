@@ -41,11 +41,23 @@ class ParamsTab(QWidget):
 
         self.camera_model_combo = QComboBox()
         self.camera_model_combo.addItems(['SIMPLE_PINHOLE', 'PINHOLE', 'SIMPLE_RADIAL',
-                                          'RADIAL', 'OPENCV', 'OPENCV_FISHEYE'])
+                                          'RADIAL', 'OPENCV', 'OPENCV_FISHEYE',
+                                          'EQUIRECTANGULAR'])
         self.camera_model_combo.setCurrentText('SIMPLE_RADIAL')
         self.camera_model_combo.setMinimumWidth(180)
         self.lbl_camera_model = QLabel(tr("lbl_camera_model"))
         extract_layout.addRow(self.lbl_camera_model, self.camera_model_combo)
+
+        # Native 360 (COLMAP 4.1.0): convenience toggle that selects the
+        # EQUIRECTANGULAR camera model for panoramic / 360° footage.
+        self.native_360_check = QCheckBox()
+        self.native_360_check.setToolTip(
+            "Reconstruction 360° native (modèle EQUIRECTANGULAR). Requiert COLMAP ≥ 4.1.0."
+        )
+        self.lbl_native_360 = QLabel(tr("check_native_360"))
+        extract_layout.addRow(self.lbl_native_360, self.native_360_check)
+        self.native_360_check.toggled.connect(self._on_native_360_toggled)
+        self.camera_model_combo.currentTextChanged.connect(self._sync_native_360_check)
 
         self.single_camera_check = QCheckBox()
         self.single_camera_check.setChecked(True)
@@ -164,12 +176,37 @@ class ParamsTab(QWidget):
         self.lbl_min_match = QLabel(tr("lbl_min_match"))
         mapper_layout.addRow(self.lbl_min_match, self.min_matches_spin)
 
+        # GPU bundle adjustment (COLMAP 4.1.0 "Caspar"). Runs the bundle
+        # adjustment on the GPU — fixes "Linear solver failure" on big scenes.
+        self.ba_use_gpu_check = QCheckBox()
+        self.ba_use_gpu_check.setToolTip(
+            "Bundle adjustment sur GPU (CUDA). Corrige les 'Linear solver failure' "
+            "sur les grandes scènes. Requiert COLMAP ≥ 4.1.0 (ignoré sinon)."
+        )
+        self.lbl_ba_gpu = QLabel(tr("check_ba_use_gpu"))
+        mapper_layout.addRow(self.lbl_ba_gpu, self.ba_use_gpu_check)
+
         self.mapper_group.setLayout(mapper_layout)
         scroll_layout.addWidget(self.mapper_group)
 
         scroll_layout.addStretch()
         scroll.setWidget(scroll_widget)
         layout.addWidget(scroll)
+
+    def _on_native_360_toggled(self, checked):
+        """360 toggle drives the camera-model combo (single source of truth)."""
+        if checked:
+            self.camera_model_combo.setCurrentText('EQUIRECTANGULAR')
+        elif self.camera_model_combo.currentText() == 'EQUIRECTANGULAR':
+            self.camera_model_combo.setCurrentText('SIMPLE_RADIAL')
+
+    def _sync_native_360_check(self, model):
+        """Keep the 360 checkbox in sync if the camera model is changed directly."""
+        is_360 = model == 'EQUIRECTANGULAR'
+        if self.native_360_check.isChecked() != is_360:
+            self.native_360_check.blockSignals(True)
+            self.native_360_check.setChecked(is_360)
+            self.native_360_check.blockSignals(False)
 
     def get_params(self):
         """Récupère les paramètres actuels"""
@@ -190,6 +227,7 @@ class ParamsTab(QWidget):
             ba_refine_focal_length=self.refine_focal_check.isChecked(),
             ba_refine_principal_point=self.refine_principal_check.isChecked(),
             ba_refine_extra_params=self.refine_extra_check.isChecked(),
+            ba_use_gpu=self.ba_use_gpu_check.isChecked(),
             min_num_matches=self.min_matches_spin.value(),
             matcher_type=self.matcher_type_combo.currentText(),
             use_glomap=self.use_glomap_check.isChecked(),
@@ -213,9 +251,12 @@ class ParamsTab(QWidget):
         self.refine_focal_check.setChecked(params.ba_refine_focal_length)
         self.refine_principal_check.setChecked(params.ba_refine_principal_point)
         self.refine_extra_check.setChecked(params.ba_refine_extra_params)
+        self.ba_use_gpu_check.setChecked(params.ba_use_gpu)
         self.min_matches_spin.setValue(params.min_num_matches)
         self.matcher_type_combo.setCurrentText(params.matcher_type)
         self.use_glomap_check.setChecked(params.use_glomap)
+        # Keep the 360 convenience checkbox consistent with the loaded model.
+        self._sync_native_360_check(params.camera_model)
         # undistort est dans config tab
 
     def get_state(self):
@@ -237,6 +278,7 @@ class ParamsTab(QWidget):
         self.lbl_force_cpu.setText(tr("check_force_cpu"))
         self.lbl_affine.setText(tr("check_affine"))
         self.lbl_domain.setText(tr("check_domain"))
+        self.lbl_native_360.setText(tr("check_native_360"))
 
         self.match_group.setTitle(tr("group_match"))
         self.lbl_match_type.setText(tr("lbl_match_type"))
@@ -254,3 +296,4 @@ class ParamsTab(QWidget):
         self.lbl_principal.setText(tr("check_principal"))
         self.lbl_extra.setText(tr("check_extra"))
         self.lbl_min_match.setText(tr("lbl_min_match"))
+        self.lbl_ba_gpu.setText(tr("check_ba_use_gpu"))

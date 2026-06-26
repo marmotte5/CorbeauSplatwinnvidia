@@ -348,5 +348,7 @@
     "status_360_pre": "Preprocesamiento 360°...",
     "status_360_start": "Iniciando extracción 360°...",
     "status_upscale_done": "Upscale completado",
-    "btn_brush_standalone": "Iniciar solo Brush"
+    "btn_brush_standalone": "Iniciar solo Brush",
+    "check_native_360": "360 nativo:",
+    "check_ba_use_gpu": "Ajuste de paquetes GPU:"
 }

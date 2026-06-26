@@ -348,5 +348,7 @@
     "status_360_pre": "Предобработка 360°...",
     "status_360_start": "Запуск извлечения 360°...",
     "status_upscale_done": "Апскейлинг завершён",
-    "btn_brush_standalone": "Запустить только Brush"
+    "btn_brush_standalone": "Запустить только Brush",
+    "check_native_360": "Нативный 360:",
+    "check_ba_use_gpu": "GPU Bundle Adjustment:"
 }

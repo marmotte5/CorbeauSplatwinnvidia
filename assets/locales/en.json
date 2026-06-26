@@ -364,5 +364,7 @@
     "export_done_title": "Export Complete",
     "export_done_body": "{} files exported successfully.",
     "err_no_output": "Please select an output folder",
-    "err_no_input": "Please add at least one PLY file"
+    "err_no_input": "Please add at least one PLY file",
+    "check_native_360": "Native 360:",
+    "check_ba_use_gpu": "GPU Bundle Adjustment:"
 }
