@@ -133,24 +133,12 @@ class FfmpegEngineDep(EngineDependency):
         return ""  # No version tracking for the static build
 
     def install(self):
+        # is_installed() also matches a system ffmpeg on PATH (e.g. via winget),
+        # so we only download a self-contained build when none is present.
         if self.is_installed():
             return
 
-        # 1. Prefer a system install via winget when present
-        if shutil.which("winget"):
-            try:
-                subprocess.check_call([
-                    "winget", "install", "-e", "--id", "Gyan.FFmpeg",
-                    "--accept-source-agreements", "--accept-package-agreements",
-                ])
-            except (subprocess.CalledProcessError, OSError) as e:
-                print(f"⚠️ winget FFmpeg install failed ({e}); falling back to local download.")
-            if self.is_installed():
-                print("✅ FFmpeg installé via winget.")
-                return
-
-        # 2. Fallback: download a static build into engines/ffmpeg
-        print(">>> Installation automatique de FFmpeg (build statique)...")
+        print(">>> Installation automatique de FFmpeg (build statique) dans engines/...")
         if self.target_dir.exists():
             shutil.rmtree(str(self.target_dir), ignore_errors=True)
         if not download_and_extract_zip(FFMPEG_ZIP_URL, self.target_dir):
@@ -166,6 +154,7 @@ class FfmpegEngineDep(EngineDependency):
 
 class GlomapEngineDep(EngineDependency):
     ask_before_update = True
+    install_on_startup = False  # Source build (MSVC + CUDA); only when use_glomap is on
 
     def __init__(self):
         super().__init__("glomap", GLOMAP_REPO)

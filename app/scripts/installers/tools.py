@@ -88,6 +88,46 @@ def check_cmake_ninja():
 # Installers helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
+def refresh_windows_path():
+    """Reload PATH from the registry so tools installed this session (via winget)
+    become visible to the current process. No-op on non-Windows.
+
+    Windows updates the persistent PATH in the registry but does not propagate it
+    to already-running processes, so a freshly winget-installed cmake/node/etc. is
+    invisible to subprocess calls until the shell is restarted — unless we refresh.
+    """
+    if os.name != "nt":
+        return
+    try:
+        import winreg
+        parts = []
+        for root, sub in (
+            (winreg.HKEY_LOCAL_MACHINE,
+             r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment"),
+            (winreg.HKEY_CURRENT_USER, "Environment"),
+        ):
+            try:
+                with winreg.OpenKey(root, sub) as key:
+                    val, _ = winreg.QueryValueEx(key, "Path")
+                    if val:
+                        parts.append(os.path.expandvars(val))
+            except OSError:
+                continue
+        if parts:
+            merged = os.pathsep.join(parts)
+            current = os.environ.get("PATH", "")
+            seen = set()
+            ordered = []
+            for entry in (merged + os.pathsep + current).split(os.pathsep):
+                key = entry.lower().rstrip("\\")
+                if entry and key not in seen:
+                    seen.add(key)
+                    ordered.append(entry)
+            os.environ["PATH"] = os.pathsep.join(ordered)
+    except Exception as e:
+        print(f"⚠️ Could not refresh PATH from registry: {e}")
+
+
 def _winget_install(package_id: str, friendly_name: str) -> bool:
     """Installs a package via winget. Returns True on success."""
     if not check_winget():
@@ -99,6 +139,8 @@ def _winget_install(package_id: str, friendly_name: str) -> bool:
             "winget", "install", "-e", "--id", package_id,
             "--accept-source-agreements", "--accept-package-agreements",
         ])
+        # Make the newly-installed binaries visible to this process immediately.
+        refresh_windows_path()
         return True
     except (subprocess.CalledProcessError, OSError) as e:
         print(f"Error installing {friendly_name}: {e}")
@@ -120,7 +162,9 @@ def install_rust_toolchain():
     import tempfile
     import urllib.request
     try:
-        rustup_path = Path(tempfile.mkstemp(suffix=".exe")[1])
+        _fd, _rustup_name = tempfile.mkstemp(suffix=".exe")
+        os.close(_fd)  # release the handle so Windows can run/delete the file
+        rustup_path = Path(_rustup_name)
         req = urllib.request.Request("https://win.rustup.rs/x86_64")
         with urllib.request.urlopen(req, timeout=30) as resp:
             rustup_path.write_bytes(resp.read())
@@ -167,7 +211,11 @@ def download_and_extract_zip(url: str, dest_dir: Path, log=print) -> bool:
     import urllib.request
 
     dest_dir.mkdir(parents=True, exist_ok=True)
-    tmp = Path(tempfile.mkstemp(suffix=".zip")[1])
+    # NOTE: close the fd mkstemp opens, otherwise Windows holds an exclusive lock
+    # on the temp file and ZipFile can't read it (WinError 32 sharing violation).
+    fd, tmp_name = tempfile.mkstemp(suffix=".zip")
+    os.close(fd)
+    tmp = Path(tmp_name)
     try:
         log(f"Downloading {url} ...")
         req = urllib.request.Request(url, headers={"User-Agent": "CorbeauSplat"})
