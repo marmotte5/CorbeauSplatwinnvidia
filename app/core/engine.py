@@ -540,14 +540,16 @@ class ColmapEngine(BaseEngine):
         self.log("Images originales restaurées — la reconstruction continue sans upscale.")
 
     def _check_and_normalize_resolution(self, images_dir: Path) -> bool:
-        """Vérifie et normalise la résolution des images."""
+        """Vérifie et normalise la résolution des images.
+
+        Reads only image dimensions from the file header (fast, no full decode)
+        in parallel. Frames from a single video are all the same size, so this
+        exits almost instantly.
+        """
         self.log(f"\n{'='*60}\nVérification résolution images\n{'='*60}")
 
-        if not getattr(self, '_cv2_loaded', False):
-            self.log("⚠️ OpenCV non disponible — vérification résolution ignorée.")
+        if not images_dir.exists():
             return True
-
-        import cv2
 
         files = sorted([
             f for f in images_dir.iterdir()
@@ -557,18 +559,33 @@ class ColmapEngine(BaseEngine):
         if len(files) < 2:
             return True
 
-        self.log(f"Analyse de {len(files)} images...")
+        total = len(files)
+        self.log(f"Lecture des dimensions de {total} images (en-tête seulement, {self.num_threads} threads)...")
+
+        from PIL import Image
+
+        def _size_one(f):
+            try:
+                with Image.open(f) as im:
+                    return f, im.size  # (w, h) read from the header, no decode
+            except Exception:
+                return f, None
 
         sizes = {}
-        for f in files:
-            if self.is_cancelled():
-                return False
-            img = cv2.imread(str(f), cv2.IMREAD_UNCHANGED)
-            if img is None:
-                self.log(f"⚠️ Lecture impossible: {f.name}")
-                continue
-            h, w = img.shape[:2]
-            sizes[f] = (w, h)
+        done = 0
+        with ThreadPoolExecutor(max_workers=max(2, self.num_threads)) as ex:
+            futures = [ex.submit(_size_one, f) for f in files]
+            for fut in as_completed(futures):
+                if self.is_cancelled():
+                    ex.shutdown(cancel_futures=True)
+                    return False
+                f, sz = fut.result()
+                if sz is not None:
+                    sizes[f] = sz
+                done += 1
+                if done % 1000 == 0 or done == total:
+                    self.status(f"Dimensions : {done}/{total}")
+                    self.progress(int(done / total * 100))
 
         if not sizes:
             return True
@@ -578,6 +595,11 @@ class ColmapEngine(BaseEngine):
             w, h = next(iter(unique_sizes))
             self.log(f"✅ Résolution uniforme: {w}×{h} px")
             return True
+
+        if not getattr(self, '_cv2_loaded', False):
+            self.log("⚠️ Résolutions différentes mais OpenCV indisponible — redimensionnement ignoré.")
+            return True
+        import cv2
 
         min_w = min(s[0] for s in unique_sizes)
         min_h = min(s[1] for s in unique_sizes)
