@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import platform
+import re
 import shutil
 import sqlite3
 from collections.abc import Callable
@@ -830,10 +831,17 @@ class ColmapEngine(BaseEngine):
                     if len(parts) > 1:
                         self.status(f"{status_prefix} : bloc {parts[1].strip()}")
                 elif "Registering image" in line_str:
-                    parts = line_str.split("Registering image")
-                    if len(parts) > 1:
-                        img_info = parts[1].split('(')[0].strip()
-                        self.status(f"{status_prefix} : ajout image {img_info}")
+                    # Show num_reg_frames (images successfully placed so far) —
+                    # the real progress counter for the mapper — instead of the
+                    # raw image id, so the user can see where they are.
+                    m = re.search(r'num_reg_frames=(\d+)', line_str)
+                    if m:
+                        self.status(f"{status_prefix} : {m.group(1)} images placées")
+                    else:
+                        parts = line_str.split("Registering image")
+                        if len(parts) > 1:
+                            img_info = parts[1].split('(')[0].strip()
+                            self.status(f"{status_prefix} : ajout image {img_info}")
                 elif "Bundle adjustment report" in line_str:
                     self.status(f"{status_prefix} : optimisation globale...")
                 elif "Undistorting image" in line_str:
