@@ -816,7 +816,10 @@ class ColmapEngine(BaseEngine):
                 self._ba_warn_noted = True
                 self.log("ℹ️ (info) « Linear solver failure » est un avertissement NON bloquant : "
                          "une étape d'optimisation a échoué, COLMAP réessaie automatiquement et "
-                         "continue. Tant que les images continuent de s'enregistrer, tout va bien.")
+                         "continue. Tant que les images continuent de s'enregistrer, tout va bien. "
+                         "Si cela se répète beaucoup pendant le « Global bundle adjustment », "
+                         "activez le « Bundle adjustment GPU » (COLMAP 4.1.0) ou le « Mode robuste » "
+                         "pour stabiliser l'optimisation.")
             if status_prefix:
                 if "Processed file" in line_str:
                     parts = line_str.split("Processed file")
