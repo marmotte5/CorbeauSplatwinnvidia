@@ -41,7 +41,17 @@ def _imwrite_unicode(path, img) -> bool:
     """
     import cv2
     p = Path(path)
-    ok, buf = cv2.imencode(p.suffix or ".png", img)
+    suffix = p.suffix or ".png"
+    params = []
+    if suffix.lower() in (".jpg", ".jpeg"):
+        # JPEG can't store an alpha channel and defaults to lossy quality 95.
+        # Drop alpha (IMREAD_UNCHANGED may return 4 channels) and re-encode at
+        # max quality so an in-place resize doesn't silently degrade the frame
+        # or fail outright on a 4-channel image.
+        if img.ndim == 3 and img.shape[2] == 4:
+            img = cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+        params = [cv2.IMWRITE_JPEG_QUALITY, 100]
+    ok, buf = cv2.imencode(suffix, img, params)
     if not ok:
         return False
     try:
@@ -326,7 +336,11 @@ class ColmapEngine(BaseEngine):
                     continue
 
                 base_name = video_path.stem
-                prefix = "".join([c for c in base_name if c.isalnum() or c in ('_', '-')])
+                sanitized = "".join([c for c in base_name if c.isalnum() or c in ('_', '-')])
+                # Prefix with the enumeration index so two videos whose stems
+                # sanitize to the same string (or to an empty string) get distinct,
+                # non-empty prefixes and never overwrite each other's frames.
+                prefix = f"{i:03d}_{sanitized}" if sanitized else f"{i:03d}"
 
                 self.log(f"Extraction video ({i+1}/{total_videos}): {base_name}")
 
@@ -783,7 +797,18 @@ class ColmapEngine(BaseEngine):
         self.log(f"\n{'='*60}\nExtraction frames: {Path(video_path).name}\n{'='*60}")
         images_dir.mkdir(parents=True, exist_ok=True)
 
-        output_pattern = images_dir / (f'{prefix}_%04d.jpg' if prefix else 'frame_%04d.jpg')
+        frame_stem = f'{prefix}_' if prefix else 'frame_'
+
+        # Re-runs: remove this video's previous frames first, so a changed fps or
+        # source video doesn't leave stale higher-numbered frames behind that
+        # would then be fed to COLMAP. Only this prefix is touched.
+        for old in images_dir.glob(f'{frame_stem}*.jpg'):
+            try:
+                old.unlink()
+            except OSError:
+                pass
+
+        output_pattern = images_dir / f'{frame_stem}%04d.jpg'
 
         cmd = [self.ffmpeg_bin]
         if self.has_cuda:
@@ -813,10 +838,9 @@ class ColmapEngine(BaseEngine):
             if returncode == 0:
                 # Count only frames from THIS video (prefix) to avoid inflating
                 # the total when several videos share images_dir.
-                stem = (f'{prefix}_' if prefix else 'frame_')
                 num_frames = len([
                     f for f in images_dir.iterdir()
-                    if f.suffix == '.jpg' and f.name.startswith(stem)
+                    if f.suffix == '.jpg' and f.name.startswith(frame_stem)
                 ])
                 self.log(f"{num_frames} frames extraites")
                 if num_frames == 0:
