@@ -24,6 +24,7 @@ from app.core.i18n import add_language_observer, tr
 from app.core.system import resolve_binary, resolve_project_root
 from app.gui.widgets.dialog_utils import get_existing_directory
 from app.gui.widgets.drop_line_edit import DropLineEdit
+from app.gui.widgets.wheel_guard import install_wheel_guard
 
 
 class BrushTab(QWidget):
@@ -36,6 +37,7 @@ class BrushTab(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.init_ui()
+        install_wheel_guard(self)
         add_language_observer(self.retranslate_ui)
 
     def init_ui(self):

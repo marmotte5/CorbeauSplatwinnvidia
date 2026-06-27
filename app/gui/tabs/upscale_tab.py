@@ -28,6 +28,7 @@ from app.gui.widgets.upscale_widgets import (
     ModelDownloadWorker,
     TestWorker,
 )
+from app.gui.widgets.wheel_guard import install_wheel_guard
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Main tab
@@ -42,6 +43,7 @@ class UpscaleTab(QWidget):
         self._model_cards: dict[str, ModelCard] = {}
         self._active_workers: list[QThread] = []
         self.init_ui()
+        install_wheel_guard(self)
         add_language_observer(self.retranslate_ui)
 
     # ──────────────────────────────────────────── build UI

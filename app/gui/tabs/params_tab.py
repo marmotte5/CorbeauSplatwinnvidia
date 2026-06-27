@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
 from app.core.i18n import add_language_observer, tr
 from app.core.params import ColmapParams
 from app.core.system import get_optimal_threads
+from app.gui.widgets.wheel_guard import install_wheel_guard
 
 
 class ParamsTab(QWidget):
@@ -22,6 +23,9 @@ class ParamsTab(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.init_ui()
+        # Prevent stray mouse-wheel scrolling from changing combos/spin boxes
+        # (e.g. the matcher silently flipping to vocab_tree while scrolling).
+        install_wheel_guard(self)
         add_language_observer(self.retranslate_ui)
 
     def init_ui(self):
