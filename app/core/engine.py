@@ -244,12 +244,21 @@ class ColmapEngine(BaseEngine):
         if not self.feature_extraction(str(database_path), str(images_dir)):
             return False, "Échec extraction features"
         if self.params.matcher_type == 'sequential':
+            self.log("Tri de la base de données COLMAP (ordre temporel des images)...")
+            self.status("Préparation du matching séquentiel...")
             self._sort_colmap_database_images(database_path)
+            self.log("Base triée. Démarrage du matching.")
 
         self.progress(50)
 
         if self.is_cancelled(): return False, tr("USER_CANCELLED")
         self.status(tr("status_feature_matching", "Recherche des points communs..."))
+        # The matcher first loads every image's descriptors into RAM before it
+        # prints anything — on a large dataset that can be several minutes with
+        # no output. Warn so the run doesn't look frozen.
+        self.log("⏳ Matching en cours — COLMAP charge les descripteurs en mémoire. "
+                 "Cette première phase peut durer plusieurs minutes sans affichage, "
+                 "c'est normal, ne fermez pas le programme.")
         if not self.feature_matching(str(database_path)):
             return False, "Échec matching"
 
