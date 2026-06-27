@@ -369,31 +369,53 @@ class ColmapEngine(BaseEngine):
                     )
                     return False
 
+                linked = skipped = 0
+                logged_mode = False
                 for i, file_path in enumerate(src_files):
                     if self.is_cancelled(): return False
                     target_path = images_dir / file_path.name
                     if target_path.exists():
-                        counter = 1
-                        while True:
-                            target_path = images_dir / f"{file_path.parent.name}_{counter}_{file_path.name}"
-                            if not target_path.exists():
-                                break
-                            counter += 1
+                        # Already present and identical (same inode via hardlink,
+                        # or same content) → skip, never duplicate on re-runs.
+                        if self._same_image(file_path, target_path):
+                            skipped += 1
+                            target_path = None
+                        else:
+                            # Different image that happens to share a name →
+                            # disambiguate, but still skip if a prior run already
+                            # placed this exact image under the renamed path.
+                            counter = 1
+                            while True:
+                                cand = images_dir / f"{file_path.parent.name}_{counter}_{file_path.name}"
+                                if not cand.exists():
+                                    target_path = cand
+                                    break
+                                if self._same_image(file_path, cand):
+                                    skipped += 1
+                                    target_path = None
+                                    break
+                                counter += 1
 
-                    mode = self._link_or_copy(file_path, target_path)
-                    if i == 0:
-                        self.log(
-                            "Images liées (hardlink — pas de duplication sur le disque)."
-                            if mode == "link" else
-                            "Images copiées (entrée sur un autre volume — duplication inévitable)."
-                        )
+                    if target_path is not None:
+                        mode = self._link_or_copy(file_path, target_path)
+                        linked += 1
+                        if not logged_mode:
+                            self.log(
+                                "Images liées (hardlink — pas de duplication sur le disque)."
+                                if mode == "link" else
+                                "Images copiées (entrée sur un autre volume — duplication inévitable)."
+                            )
+                            logged_mode = True
 
                     if i % 10 == 0 or i == total_files - 1:
                         p = 5 + int((i / total_files) * 15)
                         self.progress(p)
                         self.status(f"Préparation des images : {i+1} / {total_files}")
 
-                self.log(f"✅ {total_files} images préparées dans {images_dir}")
+                if skipped:
+                    self.log(f"✅ {linked} images préparées, {skipped} déjà présentes (ignorées, pas de doublon).")
+                else:
+                    self.log(f"✅ {total_files} images préparées dans {images_dir}")
                 return True
             except Exception as e:
                 self.log(f"Erreur copie images: {e}")
@@ -413,6 +435,27 @@ class ColmapEngine(BaseEngine):
         except (OSError, NotImplementedError):
             shutil.copy2(str(src), str(dst))
             return "copy"
+
+    def _same_image(self, a: Path, b: Path) -> bool:
+        """True if ``b`` already holds the same image as ``a``.
+
+        Used to skip re-linking on re-runs so the project's images/ folder never
+        accumulates duplicates. Matches either the same inode (a hardlink made on
+        a previous run) or byte-identical content (the copy fallback case). Size
+        is checked first so identical content is only read when sizes match.
+        """
+        import filecmp
+        try:
+            if os.path.samefile(str(a), str(b)):
+                return True
+        except OSError:
+            pass
+        try:
+            if a.stat().st_size != b.stat().st_size:
+                return False
+            return filecmp.cmp(str(a), str(b), shallow=False)
+        except OSError:
+            return False
 
     def _convert_db_journal_mode(self, database_path: Path):
         """Switch the COLMAP database from WAL to DELETE journal mode.
