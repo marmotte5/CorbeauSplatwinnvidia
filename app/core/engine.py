@@ -798,28 +798,7 @@ class ColmapEngine(BaseEngine):
         images_dir.mkdir(parents=True, exist_ok=True)
 
         frame_stem = f'{prefix}_' if prefix else 'frame_'
-
-        # Re-runs: remove this video's previous frames first, so a changed fps or
-        # source video doesn't leave stale higher-numbered frames behind that
-        # would then be fed to COLMAP. Only this prefix is touched.
-        for old in images_dir.glob(f'{frame_stem}*.jpg'):
-            try:
-                old.unlink()
-            except OSError:
-                pass
-
         output_pattern = images_dir / f'{frame_stem}%04d.jpg'
-
-        cmd = [self.ffmpeg_bin]
-        if self.has_cuda:
-            cmd.extend(['-hwaccel', 'cuda'])
-
-        cmd.extend([
-            '-i', video_path,
-            '-vf', f'fps={self.fps}',
-            '-qscale:v', '2',
-            str(output_pattern)
-        ])
 
         def _ffmpeg_parser(line_str: str):
             if 'frame=' in line_str or 'error' in line_str.lower():
@@ -831,28 +810,132 @@ class ColmapEngine(BaseEngine):
                     except (IndexError, ValueError) as e:
                         self.logger.debug("Failed to parse frame number: %s", e)
 
-        try:
-            returncode = self._execute_command(cmd, line_callback=_ffmpeg_parser)
-            if self.is_cancelled(): return None
+        def _build_cmd(decoder):
+            c = [self.ffmpeg_bin]
+            if self.has_cuda:
+                c.extend(['-hwaccel', 'cuda'])
+                if decoder:                       # NVDEC hardware decoder (cuvid)
+                    c.extend(['-c:v', decoder])
+            c.extend([
+                '-i', video_path,
+                '-an',                            # no audio → faster, cleaner
+                '-vf', f'fps={self.fps}',
+                '-qscale:v', '2',
+                str(output_pattern),
+            ])
+            return c
 
-            if returncode == 0:
-                # Count only frames from THIS video (prefix) to avoid inflating
-                # the total when several videos share images_dir.
-                num_frames = len([
-                    f for f in images_dir.iterdir()
-                    if f.suffix == '.jpg' and f.name.startswith(frame_stem)
-                ])
-                self.log(f"{num_frames} frames extraites")
-                if num_frames == 0:
-                    self.log("⚠️ Aucune frame extraite de cette vidéo.")
-                    return None
-                return True
-            else:
-                self.log("Erreur lors de l'extraction")
+        def _clear_frames():
+            # Remove this prefix's frames before each attempt so a re-run (changed
+            # fps/source) or a failed GPU attempt never leaves stale frames behind.
+            for old in images_dir.glob(f'{frame_stem}*.jpg'):
+                try:
+                    old.unlink()
+                except OSError:
+                    pass
+
+        def _count_frames():
+            return len([
+                f for f in images_dir.iterdir()
+                if f.suffix == '.jpg' and f.name.startswith(frame_stem)
+            ])
+
+        # Try NVDEC GPU decode first when a matching cuvid decoder is available,
+        # then fall back to standard decode. The CPU attempt is always present, so
+        # a missing/incompatible GPU decoder can never break extraction.
+        decoder = self._cuvid_decoder_for(video_path) if self.has_cuda else None
+        attempts = ([decoder] if decoder else []) + [None]
+
+        for idx, dec in enumerate(attempts):
+            if self.is_cancelled():
                 return None
-        except Exception as e:
-            self.log(f"Erreur: {str(e)}")
-            return False
+            if dec:
+                self.log(f"Décodage vidéo : NVDEC GPU ({dec})")
+            elif idx > 0:
+                self.log("⚠️ Décodage GPU indisponible/échoué — bascule en décodage CPU.")
+            _clear_frames()
+            try:
+                returncode = self._execute_command(_build_cmd(dec), line_callback=_ffmpeg_parser)
+            except Exception as e:
+                self.log(f"Erreur: {str(e)}")
+                returncode = -1
+            if self.is_cancelled():
+                return None
+            num_frames = _count_frames()
+            if returncode == 0 and num_frames > 0:
+                self.log(f"{num_frames} frames extraites")
+                return True
+            # otherwise fall through to the next attempt (CPU)
+
+        self.log("⚠️ Aucune frame extraite de cette vidéo.")
+        return None
+
+    def _cuvid_decoder_for(self, video_path: str) -> str | None:
+        """Returns the NVDEC (cuvid) decoder name for the input video's codec, or
+        None if it can't be determined or isn't available in this ffmpeg build."""
+        codec = self._probe_video_codec(video_path)
+        if not codec:
+            return None
+        cuvid_map = {
+            'h264': 'h264_cuvid', 'hevc': 'hevc_cuvid', 'h265': 'hevc_cuvid',
+            'mpeg1video': 'mpeg1_cuvid', 'mpeg2video': 'mpeg2_cuvid',
+            'mpeg4': 'mpeg4_cuvid', 'vc1': 'vc1_cuvid', 'vp8': 'vp8_cuvid',
+            'vp9': 'vp9_cuvid', 'av1': 'av1_cuvid', 'mjpeg': 'mjpeg_cuvid',
+        }
+        decoder = cuvid_map.get(codec.lower())
+        if decoder and decoder in self._available_cuvid_decoders():
+            return decoder
+        return None
+
+    def _probe_video_codec(self, video_path: str) -> str | None:
+        """Reads the first video stream's codec name via ffprobe (best-effort)."""
+        ffprobe = self._ffprobe_bin()
+        if not ffprobe:
+            return None
+        try:
+            import subprocess
+            out = subprocess.run(
+                [ffprobe, '-v', 'error', '-select_streams', 'v:0',
+                 '-show_entries', 'stream=codec_name',
+                 '-of', 'default=nokey=1:noprint_wrappers=1', str(video_path)],
+                capture_output=True, text=True, timeout=15,
+            )
+            name = out.stdout.strip().splitlines()
+            return name[0].strip() if name else None
+        except (OSError, subprocess.SubprocessError):
+            return None
+
+    def _ffprobe_bin(self) -> str | None:
+        """ffprobe path, derived from ffmpeg's (they ship together)."""
+        if not getattr(self, 'ffmpeg_bin', None):
+            return None
+        p = Path(self.ffmpeg_bin)
+        cand = p.with_name(p.name.replace('ffmpeg', 'ffprobe'))
+        if cand.exists():
+            return str(cand)
+        which = shutil.which('ffprobe')
+        return which
+
+    def _available_cuvid_decoders(self) -> set:
+        """Set of cuvid decoders this ffmpeg build exposes (probed once, cached)."""
+        cached = getattr(self, '_cuvid_decoders', None)
+        if cached is not None:
+            return cached
+        decoders = set()
+        try:
+            import subprocess
+            out = subprocess.run(
+                [self.ffmpeg_bin, '-hide_banner', '-decoders'],
+                capture_output=True, text=True, timeout=15,
+            )
+            for line in (out.stdout + out.stderr).splitlines():
+                for tok in line.split():
+                    if tok.endswith('_cuvid'):
+                        decoders.add(tok)
+        except (OSError, subprocess.SubprocessError):
+            pass
+        self._cuvid_decoders = decoders
+        return decoders
 
     def run_command(self, cmd: list, description: str, status_prefix: str | None = None) -> bool:
         """Exécute une commande système avec logging et callback de statut."""
