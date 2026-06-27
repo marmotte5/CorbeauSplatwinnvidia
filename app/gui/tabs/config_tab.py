@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
 from app.core.i18n import add_language_observer, get_current_lang, set_language, tr
 from app.gui.widgets.dialog_utils import get_existing_directory, get_open_file_names
 from app.gui.widgets.drop_line_edit import DropLineEdit
+from app.gui.widgets.wheel_guard import install_wheel_guard
 
 
 class ResetDialog(QDialog):
@@ -119,6 +120,7 @@ class ConfigTab(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.init_ui()
+        install_wheel_guard(self)
         add_language_observer(self.retranslate_ui)
 
     def init_ui(self):
@@ -628,9 +630,12 @@ class ConfigTab(QWidget):
         if "undistort" in state: self.set_undistort(state["undistort"])
         if "auto_brush" in state: self.set_auto_brush(state["auto_brush"])
         if "upscale" in state: self.set_upscale(state["upscale"])
-        if "blur_filter" in state: self.set_blur_filter(state["blur_filter"])
-        if "blur_factor" in state: self.set_blur_factor(state["blur_factor"])
+        # Restore robust BEFORE blur: set_robust_mode(True) pre-ticks blur via
+        # _on_robust_toggled, so blur_filter must be applied last to honor the
+        # value the user actually saved (otherwise blur is always re-checked).
         if "robust_mode" in state: self.set_robust_mode(state["robust_mode"])
+        if "blur_factor" in state: self.set_blur_factor(state["blur_factor"])
+        if "blur_filter" in state: self.set_blur_filter(state["blur_filter"])
 
         # Lang is special, might require restart if changed, so we just set combo if it matches
         # or we let the main app handle valid lang loading.
