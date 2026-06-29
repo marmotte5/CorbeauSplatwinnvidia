@@ -1099,10 +1099,19 @@ class ColmapEngine(BaseEngine):
                 self._ba_warn_noted = True
                 self.log("ℹ️ (info) « Linear solver failure » est un avertissement NON bloquant : "
                          "une étape d'optimisation a échoué, COLMAP réessaie automatiquement et "
-                         "continue. Tant que les images continuent de s'enregistrer, tout va bien. "
-                         "Si cela se répète beaucoup pendant le « Global bundle adjustment », "
-                         "activez le « Bundle adjustment GPU » (COLMAP 4.1.0) ou le « Mode robuste » "
-                         "pour stabiliser l'optimisation.")
+                         "continue. Tant que les images continuent de s'enregistrer, tout va bien.")
+            # Some COLMAP builds advertise --Mapper.ba_use_gpu but ship a Ceres
+            # compiled without CUDA/cuDSS, so BA silently runs on the CPU. Surface
+            # this once — it's the real reason the mapper is slow.
+            if (("compiled without CUDA support" in line_str
+                 or "compiled without cuDSS support" in line_str)
+                    and not getattr(self, "_ceres_cpu_noted", False)):
+                self._ceres_cpu_noted = True
+                self.log("⚠️ Important : ce build de COLMAP a Ceres SANS CUDA/cuDSS → le bundle "
+                         "adjustment tourne en réalité sur le CPU (le flag GPU est sans effet ici). "
+                         "C'est la principale cause de lenteur du mapper. Pour accélérer : utilisez "
+                         "GLOMAP (qui évite le BA global répété) ou un COLMAP compilé avec "
+                         "Ceres+CUDA+cuDSS.")
             if status_prefix:
                 if "Processed file" in line_str:
                     parts = line_str.split("Processed file")
@@ -1386,7 +1395,8 @@ class ColmapEngine(BaseEngine):
                     cmd += ['--Mapper.ba_use_gpu', '1']
                     if self.params.ba_gpu_index is not None and self.params.ba_gpu_index >= 0:
                         cmd += ['--Mapper.ba_gpu_index', str(self.params.ba_gpu_index)]
-                    self.log("Bundle adjustment : GPU (CUDA) ✅")
+                    self.log("Bundle adjustment GPU demandé (--ba_use_gpu) — effectif seulement "
+                             "si ce build de COLMAP a Ceres compilé avec CUDA/cuDSS (vérifié au runtime).")
                 else:
                     self.log("⚠️ GPU bundle adjustment demandé mais ce COLMAP ne le "
                              "supporte pas (requiert COLMAP ≥ 4.1.0) → fallback CPU. "
