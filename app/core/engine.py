@@ -393,6 +393,12 @@ class ColmapEngine(BaseEngine):
         if not self.mapper(str(database_path), str(images_dir), str(sparse_dir)):
             return False, "Échec reconstruction"
 
+        # With multiple_models on, COLMAP writes sub-models (sparse/0, sparse/1, …)
+        # in no particular size order. Brush and the undistorter use sparse/0, so
+        # make sure sparse/0 is the model with the MOST registered images —
+        # otherwise training can land on a tiny fragment (e.g. 11 of 3000 images).
+        self._promote_largest_sparse_model(sparse_dir)
+
         self.progress(90)
 
         if self.params.undistort_images:
@@ -1433,6 +1439,69 @@ class ColmapEngine(BaseEngine):
             '--max_image_size', str(self.params.max_image_size),
         ]
         return self.run_command(cmd, "Undistortion des images", status_prefix="Correction optique")
+
+    def _count_registered_images(self, model_dir: Path) -> int:
+        """Number of registered images in a COLMAP sub-model. The binary
+        images.bin begins with a uint64 count, so this reads just 8 bytes;
+        falls back to counting images.txt entries."""
+        import struct
+        b = model_dir / "images.bin"
+        if b.exists():
+            try:
+                with open(b, "rb") as f:
+                    head = f.read(8)
+                return struct.unpack("<Q", head)[0] if len(head) == 8 else 0
+            except (OSError, struct.error):
+                return 0
+        t = model_dir / "images.txt"
+        if t.exists():
+            try:
+                # images.txt: comment lines, then 2 lines per registered image.
+                lines = [ln for ln in t.read_text().splitlines()
+                         if ln.strip() and not ln.startswith("#")]
+                return len(lines) // 2
+            except OSError:
+                return 0
+        return 0
+
+    def _promote_largest_sparse_model(self, sparse_dir: Path) -> None:
+        """Ensure sparse/0 is the sub-model with the most registered images.
+
+        COLMAP's multiple_models output ordering is not by size, so sparse/0 may
+        be a small fragment. Downstream (Brush, undistorter) always uses sparse/0,
+        so swap the largest model into that slot."""
+        try:
+            models = []
+            for d in sorted(sparse_dir.iterdir()):
+                if d.is_dir() and d.name.isdigit():
+                    n = self._count_registered_images(d)
+                    if n > 0:
+                        models.append((n, d))
+        except OSError:
+            return
+        if not models:
+            return
+        models.sort(key=lambda m: m[0], reverse=True)
+        best_n, best = models[0]
+        if len(models) > 1:
+            self.log("Sous-modèles COLMAP (images enregistrées) : "
+                     + ", ".join(f"sparse/{p.name}={n}" for n, p in models))
+        if best.name == "0":
+            self.log(f"Modèle principal : sparse/0 ({best_n} images).")
+            return
+        # Swap the largest model into sparse/0.
+        zero = sparse_dir / "0"
+        tmp = sparse_dir / "_swap_tmp"
+        try:
+            if tmp.exists():
+                shutil.rmtree(tmp)
+            best.rename(tmp)        # largest → _swap_tmp
+            zero.rename(best)       # old 0   → largest's freed name
+            tmp.rename(zero)        # _swap_tmp → 0
+            self.log(f"⚠️ La reconstruction s'est fragmentée — modèle le plus complet "
+                     f"(sparse/{best.name}, {best_n} images) promu en sparse/0 pour l'entraînement.")
+        except OSError as e:
+            self.log(f"(info) Impossible de réordonner les sous-modèles COLMAP : {e}")
 
     def create_brush_config(self, output_dir: Path, images_dir: Path, sparse_dir: Path):
         """Génère le fichier de configuration pour Brush."""
