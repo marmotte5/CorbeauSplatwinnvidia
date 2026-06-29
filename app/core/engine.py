@@ -1219,14 +1219,27 @@ class ColmapEngine(BaseEngine):
                 '--Mapper.ba_refine_principal_point', '1' if self.params.ba_refine_principal_point else '0',
                 '--Mapper.ba_refine_extra_params', '1' if self.params.ba_refine_extra_params else '0',
                 '--Mapper.min_num_matches', str(self.params.min_num_matches),
-                # Bound bundle-adjustment cost (the dominant mapper time on large
-                # scenes) — faster than COLMAP defaults, safe for a 3DGS target.
-                '--Mapper.ba_global_max_num_iterations', str(self.params.ba_global_max_num_iterations),
-                '--Mapper.ba_global_function_tolerance', str(self.params.ba_global_function_tolerance),
-                '--Mapper.ba_global_images_ratio', str(self.params.ba_global_images_ratio),
-                '--Mapper.ba_global_points_ratio', str(self.params.ba_global_points_ratio),
-                '--Mapper.ba_local_max_num_iterations', str(self.params.ba_local_max_num_iterations),
             ]
+            # Bound bundle-adjustment cost (the dominant mapper time on large
+            # scenes) — faster than COLMAP defaults, safe for a 3DGS target. Each
+            # flag is gated on the installed COLMAP actually advertising it: COLMAP
+            # 4.1.0 renamed/removed some of these (e.g. ba_global_*_ratio), and an
+            # unrecognized option makes the whole mapper abort.
+            ba_bounds = [
+                ('ba_global_max_num_iterations', self.params.ba_global_max_num_iterations),
+                ('ba_global_function_tolerance', self.params.ba_global_function_tolerance),
+                ('ba_global_images_ratio', self.params.ba_global_images_ratio),
+                ('ba_global_points_ratio', self.params.ba_global_points_ratio),
+                ('ba_local_max_num_iterations', self.params.ba_local_max_num_iterations),
+            ]
+            skipped = []
+            for name, val in ba_bounds:
+                if self._mapper_supports(name):
+                    cmd += [f'--Mapper.{name}', str(val)]
+                else:
+                    skipped.append(name)
+            if skipped:
+                self.log(f"(info) Options BA non reconnues par ce COLMAP, ignorées : {', '.join(skipped)}")
             # GPU bundle adjustment (COLMAP 4.1.0 "Caspar"). Only add the flag if
             # the installed COLMAP actually supports it — otherwise an older
             # build would abort with "unrecognized option". This is exactly the
@@ -1243,27 +1256,39 @@ class ColmapEngine(BaseEngine):
                              "Supprimez engines\\colmap et relancez run.bat pour mettre à jour.")
             return self.run_command(cmd, "Reconstruction 3D (COLMAP)", status_prefix="Reconstruction 3D")
 
-    def _mapper_supports_gpu_ba(self) -> bool:
-        """True if `colmap mapper` accepts --Mapper.ba_use_gpu (COLMAP ≥ 4.1.0).
+    def _mapper_help_text(self) -> str:
+        """`colmap mapper -h` output, fetched once and cached (empty on failure).
 
-        Probed once via the mapper help text and cached, so we never pass an
-        option that an older COLMAP build would reject.
+        Used to gate every optional --Mapper.* flag so we never pass an option a
+        given COLMAP build doesn't recognize (which aborts the whole mapper).
         """
-        cached = getattr(self, "_gpu_ba_supported", None)
+        cached = getattr(self, "_mapper_help", None)
         if cached is not None:
             return cached
-        supported = False
+        text = ""
         try:
             import subprocess
             out = subprocess.run(
                 [self.colmap_bin, 'mapper', '-h'],
                 capture_output=True, text=True, timeout=15,
             )
-            supported = 'ba_use_gpu' in (out.stdout + out.stderr)
+            text = out.stdout + out.stderr
         except (OSError, subprocess.SubprocessError):
-            supported = False
-        self._gpu_ba_supported = supported
-        return supported
+            text = ""
+        self._mapper_help = text
+        return text
+
+    def _mapper_supports(self, option: str) -> bool:
+        """True if `colmap mapper` advertises --Mapper.<option> for this build.
+
+        If the help probe failed (empty text) we return False — better to skip a
+        speed-tuning flag than risk aborting the mapper on an unrecognized option.
+        """
+        return option in self._mapper_help_text()
+
+    def _mapper_supports_gpu_ba(self) -> bool:
+        """True if `colmap mapper` accepts --Mapper.ba_use_gpu (COLMAP ≥ 4.1.0)."""
+        return self._mapper_supports('ba_use_gpu')
 
     def image_undistorter(self, images_dir: str, sparse_dir: str, output_dir: str) -> bool:
         """Exécute l'undistortion des images."""
