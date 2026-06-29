@@ -32,7 +32,8 @@ class BrushEngine(BaseEngine):
         self.process = None
 
     def build_command(self, input_path: str, output_path: str,
-                      params: dict[str, Any] | None = None) -> tuple[list[str], dict[str, str]]:
+                      params: dict[str, Any] | None = None,
+                      backend_override: str | None = None) -> tuple[list[str], dict[str, str]]:
         """Build the Brush command list and environment from parameters.
 
         Parameters
@@ -67,7 +68,9 @@ class BrushEngine(BaseEngine):
         # target CUDA-class GPUs. We pin DX12 (most reliable on Windows) and let
         # wgpu pick the high-performance (discrete) adapter.
         if device in ("cuda", "auto"):
-            env["WGPU_BACKEND"] = "dx12"
+            # DX12 is the most reliable default on Windows/NVIDIA; Vulkan is the
+            # automatic fallback when Brush hits the burn-fusion panic (see train).
+            env["WGPU_BACKEND"] = backend_override or params.get("wgpu_backend") or "dx12"
             env["WGPU_POWER_PREF"] = "high_performance"
 
         for param_name, flag in [
@@ -129,6 +132,43 @@ class BrushEngine(BaseEngine):
             raise ValueError("Chemins invalides ou non sécurisés détectés.")
         if not self.brush_bin:
             raise RuntimeError("Exécutable 'brush' non trouvé.")
-        cmd, env = self.build_command(str(safe_input), str(safe_output), params)
-        self.log(f"Lancement Brush: {' '.join(cmd)}")
-        return self._execute_command(cmd, env=env)
+
+        params = params or {}
+        device = params.get("device", self.device)
+        # Brush is built on burn-fusion, which can panic ("Ordering is bigger than
+        # operations" / tensor-handle assertions) on certain GPU/driver paths.
+        # There is no runtime flag to disable fusion, but switching the wgpu
+        # backend (DX12 ↔ Vulkan) reschedules the op stream and usually dodges it.
+        # So on a fusion panic we retry once on the alternate backend.
+        if device in ("cuda", "auto"):
+            primary = params.get("wgpu_backend") or "dx12"
+            backends = [primary, "vulkan" if primary != "vulkan" else "dx12"]
+        else:
+            backends = [None]
+
+        last_rc = -1
+        for idx, backend in enumerate(backends):
+            if getattr(self, "stop_requested", False):
+                break
+            cmd, env = self.build_command(str(safe_input), str(safe_output), params,
+                                          backend_override=backend)
+            if idx > 0:
+                self.log(f"⚠️ Brush a planté (bug burn-fusion). Nouvelle tentative avec "
+                         f"le backend GPU « {backend} »…")
+            self.log(f"Lancement Brush: {' '.join(cmd)}")
+            panic = {"hit": False}
+
+            def _capture(line, _p=panic):
+                low = line.lower()
+                if "panicked" in low or "ordering is bigger than operations" in low:
+                    _p["hit"] = True
+                self.log(line)
+
+            rc = self._execute_command(cmd, env=env, line_callback=_capture)
+            last_rc = rc
+            if rc == 0 or getattr(self, "stop_requested", False):
+                return rc
+            if not panic["hit"]:
+                return rc  # a non-fusion failure → don't blindly retry
+            # fusion panic → loop to the alternate backend
+        return last_rc
