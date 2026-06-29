@@ -229,48 +229,155 @@ class ColmapEngine(BaseEngine):
 
         return True
 
+    # Params that change the contents of database.db (features + matches). If any
+    # differ from a previous run, the DB must NOT be reused.
+    _DB_SIG_KEYS = (
+        'camera_model', 'single_camera', 'max_image_size', 'max_num_features',
+        'estimate_affine_shape', 'domain_size_pooling',
+        'matcher_type', 'max_ratio', 'max_distance', 'cross_check',
+        'guided_matching', 'sequential_overlap',
+    )
+
+    def _db_sig_path(self, database_path: Path) -> Path:
+        return Path(str(database_path) + ".sig.json")
+
+    def _db_signature(self, images_dir: Path) -> dict:
+        sig = {k: getattr(self.params, k, None) for k in self._DB_SIG_KEYS}
+        sig['image_count'] = len(self._current_image_names(images_dir))
+        return sig
+
+    def _current_image_names(self, images_dir: Path) -> set:
+        """Relative posix names of the images COLMAP would ingest (matches the
+        filter used by _write_sorted_image_list and stored in the DB)."""
+        root = Path(images_dir)
+        if not root.exists():
+            return set()
+        return {
+            f.relative_to(root).as_posix()
+            for f in root.rglob('*')
+            if f.is_file()
+            and f.suffix.lower() in _IMAGE_EXTS
+            and not f.name.lower().endswith('.mask.png')
+        }
+
+    def _write_db_signature(self, database_path: Path, images_dir: Path) -> None:
+        try:
+            self._db_sig_path(database_path).write_text(
+                json.dumps(self._db_signature(images_dir)), encoding='utf-8'
+            )
+        except OSError as e:
+            self.log(f"(info) Impossible d'écrire la signature de reprise : {e}")
+
+    def _database_is_reusable(self, database_path: Path, images_dir: Path) -> bool:
+        """True only if database.db can be safely resumed from: it has features
+        AND geometrically-verified matches for EXACTLY the current image set, and
+        the extraction/matching params are unchanged since it was built.
+
+        Conservative by design — any missing data, mismatch, or error returns
+        False so the pipeline rebuilds from scratch (never reuse a stale DB).
+        """
+        if not database_path.exists():
+            return False
+        # 1. Params + image-count signature must match the stored one.
+        try:
+            stored = json.loads(self._db_sig_path(database_path).read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            return False
+        if stored != self._db_signature(images_dir):
+            return False
+        current = self._current_image_names(images_dir)
+        if not current:
+            return False
+        # 2. The DB must actually contain features + verified matches for exactly
+        #    those images.
+        try:
+            con = sqlite3.connect(str(database_path))
+            try:
+                tables = {r[0] for r in con.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'")}
+                if not {'images', 'descriptors'} <= tables:
+                    return False
+                db_names = {r[0] for r in con.execute("SELECT name FROM images")}
+                if db_names != current:
+                    return False
+                n_images = con.execute("SELECT COUNT(*) FROM images").fetchone()[0]
+                n_desc = con.execute(
+                    "SELECT COUNT(*) FROM descriptors WHERE rows > 0").fetchone()[0]
+                if n_desc < n_images:
+                    return False
+                # verified matches (what the mapper consumes); fall back to raw
+                if 'two_view_geometries' in tables:
+                    verified = con.execute(
+                        "SELECT COUNT(*) FROM two_view_geometries WHERE rows > 0").fetchone()[0]
+                elif 'matches' in tables:
+                    verified = con.execute(
+                        "SELECT COUNT(*) FROM matches WHERE rows > 0").fetchone()[0]
+                else:
+                    return False
+                return verified > 0
+            finally:
+                con.close()
+        except sqlite3.Error:
+            return False
+
     def _run_reconstruction_pipeline(self, project_dir: Path, images_dir: Path) -> tuple[bool, str]:
         """Exécute les étapes de reconstruction COLMAP."""
         database_path = project_dir / "database.db"
         sparse_dir = project_dir / "sparse"
+        # The sparse model is the mapper's output — always rebuilt fresh.
         if sparse_dir.exists():
             shutil.rmtree(sparse_dir)
             self.log(f"Reconstruction sparse precedente supprimee : {sparse_dir.name}")
         sparse_dir.mkdir(exist_ok=True)
 
-        # Always start from a fresh database to avoid SQLite schema incompatibilities
-        # (especially between COLMAP and GLOMAP's bundled SQLite versions).
-        for db_file in [database_path,
-                        database_path.with_suffix(".db-wal"),
-                        database_path.with_suffix(".db-shm")]:
-            if db_file.exists():
-                db_file.unlink(missing_ok=True)
-                self.log(f"Base de données précédente supprimée : {db_file.name}")
+        # Resume: if a previous run already extracted features AND matched them for
+        # EXACTLY these images with the SAME params, skip extraction + matching and
+        # go straight to the mapper. Guarded conservatively — any mismatch redoes
+        # everything, so a stale DB can never silently corrupt the result.
+        if self._database_is_reusable(database_path, images_dir):
+            self.log("♻️ Base COLMAP existante valide pour ces images (mêmes paramètres) "
+                     "— extraction et matching ignorés, reprise directe au mapper.")
+            self.status("Reprise : base COLMAP réutilisée")
+            self.progress(75)
+        else:
+            # Start from a fresh database to avoid SQLite schema incompatibilities
+            # (especially between COLMAP and GLOMAP's bundled SQLite versions) and
+            # stale features.
+            for db_file in [database_path,
+                            database_path.with_suffix(".db-wal"),
+                            database_path.with_suffix(".db-shm"),
+                            self._db_sig_path(database_path)]:
+                if db_file.exists():
+                    db_file.unlink(missing_ok=True)
+                    self.log(f"Base de données précédente supprimée : {db_file.name}")
 
-        self.progress(25)
+            self.progress(25)
 
-        if self.is_cancelled(): return False, tr("USER_CANCELLED")
-        self.status(tr("status_feature_extraction", "Analyse des images en cours..."))
-        if not self.feature_extraction(str(database_path), str(images_dir)):
-            return False, "Échec extraction features"
-        if self.params.matcher_type == 'sequential':
-            self.log("Tri de la base de données COLMAP (ordre temporel des images)...")
-            self.status("Préparation du matching séquentiel...")
-            self._sort_colmap_database_images(database_path)
-            self.log("Base triée. Démarrage du matching.")
+            if self.is_cancelled(): return False, tr("USER_CANCELLED")
+            self.status(tr("status_feature_extraction", "Analyse des images en cours..."))
+            if not self.feature_extraction(str(database_path), str(images_dir)):
+                return False, "Échec extraction features"
+            if self.params.matcher_type == 'sequential':
+                self.log("Tri de la base de données COLMAP (ordre temporel des images)...")
+                self.status("Préparation du matching séquentiel...")
+                self._sort_colmap_database_images(database_path)
+                self.log("Base triée. Démarrage du matching.")
 
-        self.progress(50)
+            self.progress(50)
 
-        if self.is_cancelled(): return False, tr("USER_CANCELLED")
-        self.status(tr("status_feature_matching", "Recherche des points communs..."))
-        # The matcher first loads every image's descriptors into RAM before it
-        # prints anything — on a large dataset that can be several minutes with
-        # no output. Warn so the run doesn't look frozen.
-        self.log("⏳ Matching en cours — COLMAP charge les descripteurs en mémoire. "
-                 "Cette première phase peut durer plusieurs minutes sans affichage, "
-                 "c'est normal, ne fermez pas le programme.")
-        if not self.feature_matching(str(database_path)):
-            return False, "Échec matching"
+            if self.is_cancelled(): return False, tr("USER_CANCELLED")
+            self.status(tr("status_feature_matching", "Recherche des points communs..."))
+            # The matcher first loads every image's descriptors into RAM before it
+            # prints anything — on a large dataset that can be several minutes with
+            # no output. Warn so the run doesn't look frozen.
+            self.log("⏳ Matching en cours — COLMAP charge les descripteurs en mémoire. "
+                     "Cette première phase peut durer plusieurs minutes sans affichage, "
+                     "c'est normal, ne fermez pas le programme.")
+            if not self.feature_matching(str(database_path)):
+                return False, "Échec matching"
+
+            # Stamp the DB so a later run can safely resume from it.
+            self._write_db_signature(database_path, images_dir)
 
         self.progress(75)
 
