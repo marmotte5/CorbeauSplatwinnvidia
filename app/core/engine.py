@@ -1323,23 +1323,36 @@ class ColmapEngine(BaseEngine):
         return cache[cmd_name]
 
     def _ensure_vocab_tree(self) -> Path | None:
-        """Path to a COLMAP vocabulary tree (for loop-closure detection),
-        downloading it once into engines/ if needed. Returns None on failure so
-        matching can proceed without loop detection."""
-        dest = self.project_root / "engines" / "vocab_tree_flickr100K_words32K.bin"
+        """Path to a COLMAP vocabulary tree (for loop-closure / vocab-tree
+        matching), downloading it once into engines/ if needed. Returns None on
+        failure so matching can proceed without it.
+
+        COLMAP switched its vocabulary-tree index from FLANN to FAISS in May
+        2025. The classic demuc.de / 3.11.1 `vocab_tree_flickr100K_words32K.bin`
+        files are FLANN-format and make COLMAP 4.1.0 abort with
+        "Failed to read faiss index". This fork pins COLMAP >= 4.1.0, so we
+        fetch a FAISS-converted tree instead. If the download fails we return
+        None and the caller silently proceeds without loop detection."""
+        dest = self.project_root / "engines" / "vocab_tree_flickr100K_words32K_faiss.bin"
         if dest.exists() and dest.stat().st_size > 1_000_000:
             return dest
-        url = "https://demuc.de/colmap/vocab_tree_flickr100K_words32K.bin"
+        # FAISS-format flickr100K/32K tree (converted from the official FLANN
+        # release); the legacy demuc.de .bin is FLANN and crashes COLMAP 4.1.0.
+        url = ("https://raw.githubusercontent.com/ZachMckennedyFWig/"
+               "ColmapFaissVocabTrees/main/vocab_tree_flickr100K_words32K.bin")
         try:
             import shutil
             import urllib.request
             dest.parent.mkdir(parents=True, exist_ok=True)
-            self.log("Téléchargement du vocabulaire COLMAP (détection de boucles, "
-                     "~100 Mo, une seule fois)...")
+            self.log("Téléchargement du vocabulaire COLMAP FAISS (détection de "
+                     "boucles, ~10 Mo, une seule fois)...")
             req = urllib.request.Request(url, headers={"User-Agent": "CorbeauSplat"})
             tmp = dest.with_suffix(".part")
             with urllib.request.urlopen(req, timeout=180) as resp, open(tmp, "wb") as f:
                 shutil.copyfileobj(resp, f)
+            if tmp.stat().st_size < 1_000_000:
+                tmp.unlink(missing_ok=True)
+                raise OSError("fichier de vocabulaire trop petit (téléchargement incomplet)")
             tmp.replace(dest)
             return dest
         except OSError as e:  # URLError/HTTPError/timeouts all derive from OSError
@@ -1347,43 +1360,79 @@ class ColmapEngine(BaseEngine):
                      "détection de boucles.")
             return None
 
+    def _matching_common_opts(self) -> list:
+        """SIFT-matching flags shared by every matcher type."""
+        return [
+            '--FeatureMatching.num_threads', str(self.num_threads),
+            '--SiftMatching.max_ratio', str(self.params.max_ratio),
+            '--SiftMatching.max_distance', str(self.params.max_distance),
+            '--SiftMatching.cross_check', '1' if self.params.cross_check else '0',
+            '--FeatureMatching.guided_matching', '1' if self.params.guided_matching else '0',
+        ]
+
     def feature_matching(self, database_path: str) -> bool:
-        """Exécute le matching des features."""
+        """Exécute le matching des features.
+
+        La détection de boucles et le matcher vocab-tree dépendent d'un arbre de
+        vocabulaire FAISS qui peut, selon le build COLMAP, échouer au chargement.
+        Le matching ne doit JAMAIS s'interrompre pour autant : en cas d'échec on
+        rejoue automatiquement une variante plus simple (sans détection de
+        boucles, puis exhaustive) afin de toujours produire des correspondances.
+        """
+        common = self._matching_common_opts()
+
         if self.params.matcher_type == 'sequential':
-            cmd = [
+            base = [
                 self.colmap_bin, 'sequential_matcher',
                 '--database_path', database_path,
-                '--FeatureMatching.num_threads', str(self.num_threads),
-                '--SiftMatching.max_ratio', str(self.params.max_ratio),
-                '--SiftMatching.max_distance', str(self.params.max_distance),
-                '--SiftMatching.cross_check', '1' if self.params.cross_check else '0',
-                '--FeatureMatching.guided_matching', '1' if self.params.guided_matching else '0',
+                *common,
                 '--SequentialMatching.overlap', str(self.params.sequential_overlap),
                 '--SequentialMatching.quadratic_overlap', '1',
             ]
             # Loop closure: detect revisited places so the same location isn't
             # reconstructed twice. Needs a vocab tree; gated on the option existing.
+            loop_args = []
             if getattr(self.params, 'loop_detection', True) \
                     and 'loop_detection' in self._colmap_cmd_help('sequential_matcher'):
                 vocab = self._ensure_vocab_tree()
                 if vocab:
-                    cmd += ['--SequentialMatching.loop_detection', '1',
-                            '--SequentialMatching.vocab_tree_path', str(vocab)]
-                    self.log("Détection de boucles activée (anti-duplication des lieux revisités).")
-            description = "Matching Sequentiel"
-        else:
-            cmd = [
-                self.colmap_bin, 'exhaustive_matcher',
-                '--database_path', database_path,
-                '--FeatureMatching.num_threads', str(self.num_threads),
-                '--SiftMatching.max_ratio', str(self.params.max_ratio),
-                '--SiftMatching.max_distance', str(self.params.max_distance),
-                '--SiftMatching.cross_check', '1' if self.params.cross_check else '0',
-                '--FeatureMatching.guided_matching', '1' if self.params.guided_matching else '0',
-            ]
-            description = "Matching Exhaustif"
+                    loop_args = ['--SequentialMatching.loop_detection', '1',
+                                 '--SequentialMatching.vocab_tree_path', str(vocab)]
+            if loop_args:
+                self.log("Détection de boucles activée (anti-duplication des lieux revisités).")
+                if self.run_command(base + loop_args, "Matching Sequentiel",
+                                    status_prefix="Comparaison"):
+                    return True
+                # Vocab tree incompatible / unreadable → never abort matching.
+                self.log("(repli) La détection de boucles a échoué (arbre de "
+                         "vocabulaire incompatible ?) — nouvelle tentative SANS "
+                         "détection de boucles.")
+            return self.run_command(base, "Matching Sequentiel", status_prefix="Comparaison")
 
-        return self.run_command(cmd, description, status_prefix="Comparaison")
+        if self.params.matcher_type == 'vocab_tree':
+            # Real vocab-tree matcher (good for unordered/large collections).
+            vocab = self._ensure_vocab_tree()
+            if vocab:
+                cmd = [
+                    self.colmap_bin, 'vocab_tree_matcher',
+                    '--database_path', database_path,
+                    *common,
+                    '--VocabTreeMatching.vocab_tree_path', str(vocab),
+                ]
+                if self.run_command(cmd, "Matching Vocab-Tree", status_prefix="Comparaison"):
+                    return True
+                self.log("(repli) Matching vocab-tree échoué (arbre incompatible ?) "
+                         "— bascule sur le matching exhaustif.")
+            else:
+                self.log("(repli) Arbre de vocabulaire indisponible — bascule sur "
+                         "le matching exhaustif.")
+
+        cmd = [
+            self.colmap_bin, 'exhaustive_matcher',
+            '--database_path', database_path,
+            *common,
+        ]
+        return self.run_command(cmd, "Matching Exhaustif", status_prefix="Comparaison")
 
     def _colmap_has_command(self, name: str) -> bool:
         """True if the installed colmap exposes the subcommand `name` (probed via
